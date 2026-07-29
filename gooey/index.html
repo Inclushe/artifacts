@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gooey text - canvas</title>
+  <style>
+    :root {
+      --color-bg: #34304c;
+      --color-bg2: #534d7a;
+      --color-highlight: #fff;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      margin: 0
+    }
+
+    body {
+      padding: 5vh 100px 100px;
+      font-family: var(--font);
+      background: var(--color-bg);
+      color: #fff;
+    }
+
+    body[data-chrome="0"] {
+      padding-top: 60px
+    }
+
+    body[data-chrome="0"] .bar {
+      display: none
+    }
+
+    .bar {
+      display: flex;
+      gap: .75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 2rem;
+      font-size: .8rem
+    }
+
+    .bar label {
+      display: flex;
+      gap: .4rem;
+      align-items: center;
+      background: var(--color-bg2);
+      padding: .45rem .8rem;
+      border-radius: 1em
+    }
+
+    .bar button {
+      font: inherit;
+      background: var(--color-bg2);
+      color: #fff;
+      border: 0;
+      padding: .45rem .9rem;
+      border-radius: 1em;
+      cursor: pointer
+    }
+
+    .bar button[aria-pressed="true"] {
+      background: #fff;
+      color: #34304c
+    }
+
+    .bar a {
+      color: #fff;
+      opacity: .75;
+      text-decoration: underline;
+      text-underline-offset: 2px
+    }
+
+    .bar a:hover {
+      opacity: 1
+    }
+
+    #fps {
+      font-variant-numeric: tabular-nums;
+      opacity: .85
+    }
+
+    input[type=range] {
+      width: 110px
+    }
+
+    .stage {
+      position: relative
+    }
+
+    .stage h1 {
+      margin: 0;
+      max-width: 800px;
+      font-weight: 700;
+      color: #111;
+      position: relative;
+      z-index: 1
+    }
+
+    /* text above the canvas */
+    #gooCanvas {
+      position: absolute;
+      pointer-events: none;
+      z-index: 0
+    }
+
+    .goo {
+      font-size: 3rem;
+      line-height: 1.35;
+      display: inline;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
+      padding: .5rem 1rem;
+      /* PAD_X = 16, PAD_Y = 8 in the JS - keep in sync */
+    }
+
+    .goo:focus {
+      outline: 0
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="bar">
+    <label>stdDeviation <input id="sd" type="range" min="2" max="40" step="0.5" value="10"><span
+        id="sdval">10</span></label>
+    <label>edge sharpness <input id="sharp" type="range" min="4" max="240" step="1" value="240"><span
+        id="sharpval">240</span></label>
+    <label>line snap <input id="snap" type="range" min="0" max="60" step="1" value="12"><span
+        id="snapval">12</span>px</label>
+    <button id="stress" aria-pressed="false">Stress test: off</button>
+    <span id="fps">-</span>
+    <span id="note"></span>
+    <a href="https://codepen.io/ines/pen/NXbmRO" target="_blank" rel="noopener">original SVG filter demo ↗</a>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="gooCanvas"></canvas>
+    <h1>
+      <div class="goo" contenteditable="true" spellcheck="false" id="goo">This is an example of a simple headline or
+        text with rounded corners using a gooey canvas emulating an SVG filter.</div>
+    </h1>
+  </div>
+
+  <script>
+    // forked from https://codepen.io/ines/pen/NXbmRO
+
+    /* ==================================================================
+     * Gooey text on canvas.
+     *
+     * The SVG filter this replaces is blur -> alpha threshold. Any pure-SDF
+     * shortcut (smooth-min metaballs) bulges wherever two line boxes share
+     * an edge and flattens the fillets, so instead we run the *actual*
+     * filter on the GPU: coverage -> 3 box blurs per axis (which is how
+     * feGaussianBlur is specified) -> threshold. The cost is paid once per
+     * edit instead of on every repaint, which is what made the CSS version
+     * slow in Safari and unreliable in Firefox.
+     * ================================================================== */
+
+    const PAD_X = 16, PAD_Y = 8;   // must match .goo padding
+    const MAXN = 96;              // max line boxes
+    const MAXR = 24;              // max box-blur radius, in blur-buffer texels
+    const BLEED = 80;              // canvas overscan so the blob is never clipped
+    const BSCALE = 1;               // blur buffer resolution, in CSS px (1 = 1:1)
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('chrome') === '0') document.body.dataset.chrome = '0';
+
+    const stage = document.getElementById('stage');
+    const goo = document.getElementById('goo');
+    const canvas = document.getElementById('gooCanvas');
+
+    let stdDeviation = +(params.get('sd') || 10);
+    let sharpness = +(params.get('sharp') || 240);  // generalises the "19" from feColorMatrix
+    let snapPx = +(params.get('snap') ?? 12);       // edge-snapping tolerance, CSS px
+
+    /* Snap near-equal edges onto the outermost one.
+     *
+     * Two stacked lines that end within a few pixels of each other leave a tiny
+     * step in the union. The blur rounds that step into a visible bump, which
+     * reads as a mistake rather than as goo - the eye expects either a clean
+     * shared edge or an obvious difference, nothing in between. Collapsing the
+     * step to the longer line removes it at the source.
+     *
+     * A run admits a line only if the run's total span stays within `thresh`.
+     * Testing against the previous line, or against the running aggregate, both
+     * chain: four lines rising 10px each would sweep into a single 30px snap and
+     * drag the shortest line way past the tolerance. Bounding the span instead
+     * guarantees every member ends up within `thresh` of the edge it snaps to.
+     */
+    function snapEdges(vals, thresh, pick) {
+      if (!vals.length || thresh <= 0) return vals;
+      const out = vals.slice();
+      let start = 0, lo = vals[0], hi = vals[0];
+      for (let i = 1; i <= vals.length; i++) {
+        const nLo = Math.min(lo, vals[i]), nHi = Math.max(hi, vals[i]);
+        if (i < vals.length && nHi - nLo <= thresh) {
+          lo = nLo; hi = nHi;
+        } else {
+          const agg = pick(lo, hi);
+          for (let j = start; j < i; j++) out[j] = agg;
+          start = i;
+          lo = hi = vals[i];
+        }
+      }
+      return out;
+    }
+
+    /* ---------- 1. measure the line boxes ---------- */
+    function measure() {
+      const range = document.createRange();
+      range.selectNodeContents(goo);
+      const host = stage.getBoundingClientRect();
+
+      const raw = [...range.getClientRects()]
+        .filter(r => r.width > 0 && r.height > 0)
+        .map(r => ({ x: r.left - host.left, y: r.top - host.top, w: r.width, h: r.height }))
+        .sort((a, b) => a.y - b.y || a.x - b.x);
+
+      // fragments on the same line (split by <br> or inline elements) become one box
+      const lines = [];
+      for (const r of raw) {
+        const p = lines[lines.length - 1];
+        if (p && Math.abs(p.y - r.y) < r.h * 0.5 && r.x <= p.x + p.w + 2) {
+          const right = Math.max(p.x + p.w, r.x + r.w), bot = Math.max(p.y + p.h, r.y + r.h);
+          p.w = right - p.x; p.h = bot - p.y;
+        } else lines.push({ ...r });
+      }
+
+      /* Snap each side independently, outwards: lefts collapse to the smallest
+         in the run, rights to the largest - i.e. the longer line wins. Doing the
+         two edges separately means this works for left-, right- and
+         centre-aligned text without knowing which it is. */
+      const L = snapEdges(lines.map(r => r.x), snapPx, Math.min);
+      const R = snapEdges(lines.map(r => r.x + r.w), snapPx, Math.max);
+      lines.forEach((r, i) => { r.x = L[i]; r.w = R[i] - L[i]; });
+
+      // grow by the padding that box-decoration-break:clone would have painted
+      return lines.map(r => ({
+        cx: r.x + r.w / 2 + BLEED,
+        cy: r.y + r.h / 2 + BLEED,
+        hx: r.w / 2 + PAD_X,
+        hy: r.h / 2 + PAD_Y
+      }));
+    }
+
+    /* ---------- 2. GPU pipeline ---------- */
+    const VERT = `
+attribute vec2 aPos; varying vec2 vUV;
+void main(){ vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }`;
+
+    // hard union of the boxes, antialiased - the filter's SourceGraphic
+    const FRAG_SRC = `
+precision highp float;
+uniform vec2 uRes;
+uniform vec4 uRects[${MAXN}];
+uniform int  uCount;
+float sdBox(vec2 p, vec2 c, vec2 h){
+  vec2 d = abs(p - c) - h;
+  return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
+}
+void main(){
+  vec2 p = vec2(gl_FragCoord.x, uRes.y - gl_FragCoord.y);
+  float d = 1e6;
+  for (int i = 0; i < ${MAXN}; i++) {
+    if (i >= uCount) break;
+    d = min(d, sdBox(p, uRects[i].xy, uRects[i].zw));
+  }
+  gl_FragColor = vec4(clamp(0.5 - d, 0.0, 1.0));
+}`;
+
+    // one separable box blur pass; fractional radius keeps the slider smooth
+    const FRAG_BLUR = `
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2  uStep;
+uniform float uR;
+varying vec2 vUV;
+void main(){
+  float sum = 0.0, wsum = 0.0;
+  for (int i = -${MAXR}; i <= ${MAXR}; i++) {
+    float f = float(i);
+    float w = clamp(uR + 0.5 - abs(f), 0.0, 1.0);
+    sum  += w * texture2D(uTex, vUV + uStep * f).a;
+    wsum += w;
+  }
+  gl_FragColor = vec4(sum / wsum);
+}`;
+
+    /* feColorMatrix, generalised: alpha' = S*a + (0.5 - 0.5*S).
+     *
+     * S is the slope; the original hardcodes 19 ("19a - 9"). Visible edge width is
+     * (1/S) divided by the gradient of the blurred alpha, and that gradient falls
+     * off as 1/stdDeviation - which is why a fixed slope looks crisp at sd=10 and
+     * mushy at sd=30. Anchoring the ramp at 0.5 means changing S sharpens the edge
+     * without moving it, so the blob keeps its size and shape.
+     */
+    const FRAG_THRESH = `
+precision highp float;
+uniform sampler2D uTex;
+uniform vec4  uColor;
+uniform float uSlope;
+varying vec2 vUV;
+void main(){
+  float v = texture2D(uTex, vUV).a;
+  float a = clamp((v - 0.5) * uSlope + 0.5, 0.0, 1.0);
+  gl_FragColor = vec4(uColor.rgb, uColor.a * a);
+}`;
+
+    let gl, pSrc, pBlur, pThresh, quad, fbo = [], tex = [], bw = 0, bh = 0, texType;
+    const rectBuf = new Float32Array(MAXN * 4);
+
+    function compile(vs, fs) {
+      const mk = (t, src) => {
+        const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+        return s;
+      };
+      const p = gl.createProgram();
+      gl.attachShader(p, mk(gl.VERTEX_SHADER, vs));
+      gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
+      gl.bindAttribLocation(p, 0, 'aPos');
+      gl.linkProgram(p);
+      if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+      p.u = n => gl.getUniformLocation(p, n);
+      return p;
+    }
+
+    function initGL() {
+      gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false, antialias: false })
+        || canvas.getContext('experimental-webgl', { alpha: true, premultipliedAlpha: false });
+      if (!gl) return false;
+      pSrc = compile(VERT, FRAG_SRC);
+      pBlur = compile(VERT, FRAG_BLUR);
+      pThresh = compile(VERT, FRAG_THRESH);
+      quad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0);
+      gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      for (let i = 0; i < 2; i++) {
+        tex[i] = gl.createTexture();
+        fbo[i] = gl.createFramebuffer();
+      }
+
+      /* Half-float blur buffers where possible. At slope 19 an 8-bit buffer is
+         fine, but the sharpness slider multiplies quantisation error by S: at
+         S=200 a single 8-bit step spans ~78% of the output ramp, which shows up
+         as stair-stepping along the edge. Needs the _linear variant too, since
+         the threshold pass magnifies this buffer up to device resolution. */
+      const hf = gl.getExtension('OES_texture_half_float');
+      const hfLinear = gl.getExtension('OES_texture_half_float_linear');
+      texType = (hf && hfLinear) ? hf.HALF_FLOAT_OES : gl.UNSIGNED_BYTE;
+
+      sizeTargets(4, 4);
+      if (texType !== gl.UNSIGNED_BYTE) {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[0]);
+        if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+          texType = gl.UNSIGNED_BYTE;   // half-float not renderable here
+          bw = bh = 0;
+          sizeTargets(4, 4);
+        }
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      }
+      return true;
+    }
+
+    function sizeTargets(w, h) {
+      if (w === bw && h === bh) return;
+      bw = w; bh = h;
+      for (let i = 0; i < 2; i++) {
+        gl.bindTexture(gl.TEXTURE_2D, tex[i]);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, texType, null);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[i]);
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex[i], 0);
+      }
+    }
+
+    // SVG spec: feGaussianBlur is three box blurs of width d = floor(s*3*sqrt(2PI)/4 + 0.5)
+    function boxRadius(s) { return Math.max(0, (s * 3 * Math.sqrt(2 * Math.PI) / 4 + 0.5) / 2 - 0.5); }
+
+    const hasGL = initGL();
+    const ctx2d = hasGL ? null : canvas.getContext('2d');
+
+    function draw() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const cw = stage.clientWidth + BLEED * 2;
+      const ch = stage.clientHeight + BLEED * 2;
+
+      canvas.style.left = -BLEED + 'px';
+      canvas.style.top = -BLEED + 'px';
+      canvas.style.width = cw + 'px';
+      canvas.style.height = ch + 'px';
+      const pw = Math.round(cw * dpr), ph = Math.round(ch * dpr);
+      if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
+
+      const rects = measure();
+      const n = Math.min(rects.length, MAXN);
+
+      if (!hasGL) {                                   // no-WebGL fallback
+        ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx2d.clearRect(0, 0, cw, ch);
+        ctx2d.fillStyle = '#fff';
+        ctx2d.beginPath();
+        for (const b of rects) ctx2d.roundRect(b.cx - b.hx, b.cy - b.hy, b.hx * 2, b.hy * 2, stdDeviation * 1.8);
+        ctx2d.fill();
+        return;
+      }
+
+      const w = Math.max(1, Math.round(cw * BSCALE)), h = Math.max(1, Math.round(ch * BSCALE));
+      sizeTargets(w, h);
+      gl.disable(gl.BLEND);
+
+      // pass 1 - coverage
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[0]);
+      gl.viewport(0, 0, w, h);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      if (n) {
+        gl.useProgram(pSrc);
+        for (let i = 0; i < n; i++) {
+          const b = rects[i];
+          rectBuf[i * 4] = b.cx * BSCALE;
+          rectBuf[i * 4 + 1] = b.cy * BSCALE;
+          rectBuf[i * 4 + 2] = b.hx * BSCALE;
+          rectBuf[i * 4 + 3] = b.hy * BSCALE;
+        }
+        gl.uniform2f(pSrc.u('uRes'), w, h);
+        gl.uniform4fv(pSrc.u('uRects[0]'), rectBuf);
+        gl.uniform1i(pSrc.u('uCount'), n);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+
+      // passes 2-7 - three box blurs on each axis
+      const r = Math.min(boxRadius(stdDeviation * BSCALE), MAXR);
+      gl.useProgram(pBlur);
+      gl.uniform1i(pBlur.u('uTex'), 0);
+      gl.uniform1f(pBlur.u('uR'), r);
+      gl.activeTexture(gl.TEXTURE0);
+      let src = 0;
+      for (let pass = 0; pass < 6; pass++) {
+        const dst = 1 - src;
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[dst]);
+        gl.viewport(0, 0, w, h);
+        gl.bindTexture(gl.TEXTURE_2D, tex[src]);
+        gl.uniform2f(pBlur.u('uStep'), pass < 3 ? 1 / w : 0, pass < 3 ? 0 : 1 / h);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        src = dst;
+      }
+
+      // pass 8 - threshold straight to the visible canvas
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, pw, ph);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(pThresh);
+      gl.bindTexture(gl.TEXTURE_2D, tex[src]);
+      gl.uniform1i(pThresh.u('uTex'), 0);
+      gl.uniform4f(pThresh.u('uColor'), 1, 1, 1, 1);
+      gl.uniform1f(pThresh.u('uSlope'), sharpness);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    /* ---------- 3. wiring ---------- */
+    let queued = false;
+    function schedule() {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; draw(); });
+    }
+
+    goo.addEventListener('input', schedule);
+    window.addEventListener('resize', schedule);
+    if (document.fonts) document.fonts.ready.then(schedule);
+    new ResizeObserver(schedule).observe(stage);
+    schedule();
+
+    const sdIn = document.getElementById('sd'), sdVal = document.getElementById('sdval');
+    sdIn.value = stdDeviation; sdVal.textContent = stdDeviation;
+    sdIn.addEventListener('input', () => {
+      stdDeviation = +sdIn.value; sdVal.textContent = sdIn.value; schedule();
+    });
+
+    const shIn = document.getElementById('sharp'), shVal = document.getElementById('sharpval');
+    shIn.value = sharpness; shVal.textContent = sharpness;
+    shIn.addEventListener('input', () => {
+      sharpness = +shIn.value; shVal.textContent = shIn.value; schedule();
+    });
+
+    const snIn = document.getElementById('snap'), snVal = document.getElementById('snapval');
+    snIn.value = snapPx; snVal.textContent = snapPx;
+    snIn.addEventListener('input', () => {
+      snapPx = +snIn.value; snVal.textContent = snIn.value; schedule();
+    });
+
+    const stressBtn = document.getElementById('stress'), fpsEl = document.getElementById('fps');
+    let stressing = false, t0 = 0, frames = 0;
+    stressBtn.addEventListener('click', () => {
+      stressing = !stressing;
+      stressBtn.setAttribute('aria-pressed', String(stressing));
+      stressBtn.textContent = 'Stress test: ' + (stressing ? 'on' : 'off');
+      if (stressing) { t0 = performance.now(); frames = 0; requestAnimationFrame(loop); }
+      else {
+        fpsEl.textContent = '-';
+        goo.style.letterSpacing = '';   // reflows the text back; the canvas must
+        schedule();                     // follow it or the outline is left stale
+      }
+    });
+    function loop(t) {
+      if (!stressing) return;
+      goo.style.letterSpacing = (Math.sin(t / 300) * 1.5).toFixed(2) + 'px';
+      draw();
+      frames++;
+      if (t - t0 > 500) { fpsEl.textContent = (frames * 1000 / (t - t0)).toFixed(0) + ' fps'; t0 = t; frames = 0; }
+      requestAnimationFrame(loop);
+    }
+
+    document.getElementById('note').textContent = hasGL ? '' : '(no WebGL - rounded-rect fallback)';
+  </script>
+</body>
+
+</html>
