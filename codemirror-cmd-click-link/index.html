@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>CodeMirror 6 — cmd+click links</title>
+  <style>
+    body {
+      font: 14px/1.5 system-ui, sans-serif;
+      margin: 2rem auto;
+      max-width: 820px;
+      padding: 0 1rem;
+    }
+
+    h1 {
+      font-size: 1.15rem;
+      margin-bottom: .25rem;
+    }
+
+    .sub {
+      color: #666;
+      margin-top: 0;
+    }
+
+    .cm-editor {
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      height: 320px;
+    }
+
+    .cm-hyperlink {
+      text-decoration: underline dotted rgba(0, 0, 0, .35);
+      text-underline-offset: 2px;
+    }
+
+    .cm-modHeld .cm-hyperlink {
+      text-decoration: underline solid #0b62d6;
+      color: #0b62d6;
+      cursor: pointer;
+    }
+
+    #status {
+      margin-top: 1rem;
+      font: 12px ui-monospace, monospace;
+    }
+
+    .good {
+      color: #0a7;
+    }
+
+    .bad {
+      color: #b00;
+    }
+
+    kbd {
+      background: #eee;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 0 4px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>CodeMirror 6 — cmd/ctrl + click to open links</h1>
+  <p class="sub">Hold <kbd id="mod">&#8984;</kbd> — links turn blue. Click one to open it in a new tab.</p>
+  <div id="editor"></div>
+  <div id="status"></div>
+
+  <script type="module">
+    import { EditorView, basicSetup } from "https://esm.sh/codemirror";
+    import { Decoration, ViewPlugin, MatchDecorator } from "https://esm.sh/@codemirror/view";
+    import { javascript } from "https://esm.sh/@codemirror/lang-javascript";
+
+    /* ── Platform detection ────────────────────────────────────────────────────*/
+
+    const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform);
+    const modHeld = (e) => (IS_MAC ? e.metaKey : e.ctrlKey);
+
+    document.getElementById("mod").textContent = IS_MAC ? "⌘" : "Ctrl";
+
+    /* ── URL detection ─────────────────────────────────────────────────────────*/
+
+    // Fresh per use: a /g regex carries mutable `lastIndex`, so one shared instance
+    // lets MatchDecorator and the click lookup corrupt each other's scans.
+    // Trailing punctuation is excluded so "see https://x.com/a." works.
+    const urlRe = () => /\bhttps?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}]/g;
+
+    function urlAt(state, pos) {
+      const line = state.doc.lineAt(pos);
+      const offset = pos - line.from;
+      const re = urlRe();
+      for (let m; (m = re.exec(line.text));) {
+        if (offset >= m.index && offset <= m.index + m[0].length) return m[0];
+      }
+      return null;
+    }
+
+    // DOM attribute first — survives a mark split across several spans by syntax
+    // highlighting. Coordinate lookup is the fallback.
+    function resolveUrl(e, view) {
+      const el = e.target instanceof Element ? e.target.closest(".cm-hyperlink") : null;
+      const fromDom = el?.getAttribute("data-cm-url");
+      if (fromDom) return fromDom;
+      const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
+      return pos == null ? null : urlAt(view.state, pos);
+    }
+
+    /* ── The extension ─────────────────────────────────────────────────────────*/
+
+    function hyperLinks({ onClick } = {}) {
+      const matcher = new MatchDecorator({
+        regexp: urlRe(),
+        decoration: (m) =>
+          Decoration.mark({
+            class: "cm-hyperlink",
+            attributes: { "data-cm-url": m[0], title: `${IS_MAC ? "⌘" : "Ctrl"}+click to open` },
+          }),
+      });
+
+      return ViewPlugin.fromClass(
+        class {
+          constructor(view) {
+            this.decorations = matcher.createDeco(view);
+            this.onClick = onClick;
+            // Global: the modifier can go down while the editor is unfocused.
+            this.onKey = (e) => view.dom.classList.toggle("cm-modHeld", modHeld(e));
+            this.onBlur = () => view.dom.classList.remove("cm-modHeld");
+            addEventListener("keydown", this.onKey);
+            addEventListener("keyup", this.onKey);
+            addEventListener("blur", this.onBlur);
+          }
+          update(u) {
+            if (u.docChanged || u.viewportChanged) this.decorations = matcher.updateDeco(u, this.decorations);
+          }
+          destroy() {
+            removeEventListener("keydown", this.onKey);
+            removeEventListener("keyup", this.onKey);
+            removeEventListener("blur", this.onBlur);
+          }
+        },
+        {
+          decorations: (v) => v.decorations,
+          eventHandlers: {
+            // preventDefault stops CodeMirror moving the cursor / starting a
+            // selection; the URL is opened from here directly.
+            mousedown(e, view) {
+              if (e.button !== 0 || !modHeld(e)) return false;
+              const url = resolveUrl(e, view);
+              if (!url) return false;
+              e.preventDefault();
+              this.onClick?.(url, view, e);
+              return true;
+            },
+          },
+        }
+      );
+    }
+
+    /* ── Opening the link ─────────────────────────────────────────────────────*/
+
+    function openInNewTab(url) {
+      window.open(url, "_blank", "noopener");
+    }
+
+    /* ── Demo ──────────────────────────────────────────────────────────────────*/
+
+    const status = document.getElementById("status");
+
+    const view = new EditorView({
+      doc: `// Hold cmd (or ctrl) and click any URL below.
+
+// docs:   https://codemirror.net/docs/ref/
+// forum:  https://discuss.codemirror.net/
+const endpoint = "https://api.example.com/v1/users?limit=50";
+// trailing punctuation is trimmed: https://example.com/guide.
+
+fetch(endpoint).then(r => r.json());
+`,
+      extensions: [
+        basicSetup,
+        javascript(),
+        hyperLinks({ onClick: (url) => openInNewTab(url) }),
+      ],
+      parent: document.getElementById("editor"),
+    });
+
+    // ViewPlugin decorations are applied on the first measure cycle after
+    // construction, so poll a few frames before reading the DOM.
+    function verify(tries = 90) {
+      const found = view.dom.querySelectorAll(".cm-hyperlink").length;
+      if (found) {
+        status.innerHTML = `<span class="good">\u2713 extension active \u2014 ${found} links decorated</span>`;
+      } else if (tries > 0) {
+        requestAnimationFrame(() => verify(tries - 1));
+      } else {
+        status.innerHTML = `<span class="bad">\u2717 no decorations rendered</span>`;
+      }
+    }
+    requestAnimationFrame(() => verify());
+  </script>
+</body>
+
+</html>

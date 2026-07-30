@@ -43,7 +43,8 @@
       align-items: center;
       flex-wrap: wrap;
       margin-bottom: 2rem;
-      font-size: .8rem
+      font-size: .8rem;
+      text-transform: uppercase;
     }
 
     .bar label {
@@ -55,6 +56,12 @@
       border-radius: 1em
     }
 
+    .bar label span {
+      font-feature-settings: "tnum";
+      font-variant-numeric: tabular-nums;
+      width: 3ch;
+    }
+
     .bar button {
       font: inherit;
       background: var(--color-bg2);
@@ -62,7 +69,8 @@
       border: 0;
       padding: .45rem .9rem;
       border-radius: 1em;
-      cursor: pointer
+      cursor: pointer;
+      text-transform: uppercase;
     }
 
     .bar button[aria-pressed="true"] {
