@@ -9,3 +9,8 @@ claude artifacts
 - codemirror-cmd-click-link
   - poc for vscode-like link opener
 - jpeg-cleanup
+- scanimate
+  - Ported from Blender file by [BGVC](https://www.youtube.com/user/Breil123) and [The Blender Fiddler](https://www.youtube.com/@theblenderfiddler4434)
+    - https://x.com/bgvcyt/status/1884265411472154999
+    - https://www.youtube.com/watch?v=8m-uNJ2w5Xw
+    - https://www.youtube.com/watch?v=IjEJDa-hOTI

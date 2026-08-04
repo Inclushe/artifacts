@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="modulepreload"
+    href="https://esm.sh/twgl.js@5.5.4/es2022/twgl.mjs?exports=bindFramebufferInfo,createFramebufferInfo,createProgramInfo,createTexture,resizeFramebufferInfo,setUniforms"
+    as="script" />
+  <title>Scanimate — twgl + post</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #0a0a0b;
+      overflow: hidden;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #c9c9cf;
+    }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    #ui {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      width: 344px;
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
+      background: rgba(16, 16, 19, .86);
+      backdrop-filter: blur(12px);
+      border: 1px solid #2a2a30;
+      border-radius: 8px;
+      padding: 10px 12px 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, .5);
+      z-index: 10;
+    }
+
+    #ui.hidden {
+      display: none;
+    }
+
+    #ui::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    #ui::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 4px;
+    }
+
+    h1 {
+      font-size: 11px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      margin: 0 0 2px;
+      color: #f0f0f4;
+      font-weight: 600;
+    }
+
+    .sub {
+      font-size: 10px;
+      color: #6a6a76;
+      margin: 0 0 10px;
+    }
+
+    fieldset {
+      border: 0;
+      border-top: 1px solid #2a2a30;
+      margin: 10px 0 0;
+      padding: 8px 0 0;
+    }
+
+    legend {
+      font-size: 9.5px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: #7a7a88;
+      padding: 0 6px 0 0;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 64px 1fr 46px;
+      align-items: center;
+      gap: 6px;
+      margin: 5px 0;
+    }
+
+    .row.wide {
+      grid-template-columns: 64px 1fr;
+    }
+
+    .row label {
+      color: #9a9aa8;
+      font-size: 10.5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row .val {
+      text-align: right;
+      color: #e4e4ea;
+      font-size: 10.5px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .row.anim label::after {
+      content: " ◆";
+      color: #7fd98a;
+      font-size: 8px;
+    }
+
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 3px;
+      background: #33333c;
+      border-radius: 2px;
+      outline: none;
+    }
+
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #d8d8e0;
+      cursor: pointer;
+      border: 0;
+    }
+
+    input[type=range]::-moz-range-thumb {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: #d8d8e0;
+      cursor: pointer;
+      border: 0;
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 6px 0;
+      color: #9a9aa8;
+      font-size: 10.5px;
+    }
+
+    .check input {
+      accent-color: #7fd98a;
+      margin: 0;
+    }
+
+    .btns {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    button,
+    .filebtn {
+      flex: 1 1 auto;
+      background: #22222a;
+      border: 1px solid #35353f;
+      color: #d4d4dc;
+      border-radius: 5px;
+      padding: 6px 8px;
+      font: inherit;
+      font-size: 10px;
+      cursor: pointer;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    button:hover,
+    .filebtn:hover {
+      background: #2d2d38;
+      border-color: #4a4a58;
+    }
+
+    select {
+      width: 100%;
+      background: #22222a;
+      border: 1px solid #35353f;
+      color: #d4d4dc;
+      border-radius: 5px;
+      padding: 4px 6px;
+      font: inherit;
+      font-size: 10.5px;
+    }
+
+    input[type=file] {
+      display: none;
+    }
+
+    .note {
+      color: #6a6a76;
+      font-size: 9.5px;
+      margin-top: 4px;
+    }
+
+    /* Patch bay — every knob visible at once */
+    .modhead,
+    .modrow {
+      display: grid;
+      grid-template-columns: 52px 54px 1fr 1fr 1fr;
+      gap: 5px;
+      align-items: center;
+    }
+
+    .modhead {
+      font-size: 8.5px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #55555f;
+      margin: 6px 0 3px;
+    }
+
+    .modhead span {
+      text-align: center;
+    }
+
+    .modhead span:first-child {
+      text-align: left;
+    }
+
+    .modrow {
+      margin: 3px 0;
+    }
+
+    .modrow .mk {
+      font-size: 10px;
+      color: #8a8a98;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .modrow.live .mk {
+      color: #7fd98a;
+    }
+
+    .modrow select {
+      font-size: 9px;
+      padding: 2px 3px;
+    }
+
+    #modReadout {
+      min-height: 13px;
+      color: #7fd98a;
+      font-size: 9.5px;
+      font-variant-numeric: tabular-nums;
+      margin-top: 2px;
+    }
+
+    #hud {
+      position: fixed;
+      bottom: 10px;
+      left: 12px;
+      z-index: 10;
+      color: #55555f;
+      font-size: 10px;
+    }
+
+    #hint {
+      position: fixed;
+      bottom: 10px;
+      right: 12px;
+      z-index: 10;
+      color: #55555f;
+      font-size: 10px;
+    }
+
+    #err {
+      position: fixed;
+      inset: auto 12px 12px 12px;
+      z-index: 20;
+      background: #3a1414;
+      border: 1px solid #7a2a2a;
+      color: #ffb4b4;
+      padding: 10px 12px;
+      border-radius: 6px;
+      display: none;
+      white-space: pre-wrap;
+      font-size: 11px;
+      max-height: 60vh;
+      overflow: auto;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="stage"><canvas id="gl"></canvas></div>
+
+  <div id="ui">
+    <h1>Scanimate</h1>
+    <p class="sub" id="modeSub"></p>
+
+    <fieldset>
+      <legend>Render mode</legend>
+      <div class="row wide"><label>Mode</label>
+        <select id="mode">
+          <option value="beam" selected>beam spot</option>
+          <option value="strips">strips — analog</option>
+          <option value="tiles">tiles — Blender port</option>
+        </select>
+      </div>
+      <div class="row beam-only"><label>Spot</label><input type="range" id="spot" min="0.15" max="1.5" step="0.01"
+          value="0.5"><span class="val" id="spot_v"></span></div>
+      <div class="row beam-only"><label>Gain</label><input type="range" id="gain" min="0.1" max="4" step="0.01"
+          value="1"><span class="val" id="gain_v"></span></div>
+      <div class="row wide beam-only"><label>Blend</label>
+        <select id="blend">
+          <option value="add" selected>additive</option>
+          <option value="over">over</option>
+        </select>
+      </div>
+      <label class="check tiles-only"><input type="checkbox" id="continuous"> Continuous deflection</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Post — CRT chain</legend>
+      <label class="check"><input type="checkbox" id="post" checked> Post-processing</label>
+      <div class="row"><label>Persist</label><input type="range" id="decay" min="0" max="0.97" step="0.001"
+          value="0.82"><span class="val" id="decay_v"></span></div>
+      <div class="row"><label>Bloom</label><input type="range" id="bloomAmt" min="0" max="3" step="0.01"
+          value="0.9"><span class="val" id="bloomAmt_v"></span></div>
+      <div class="row"><label>Threshold</label><input type="range" id="threshold" min="0" max="2" step="0.01"
+          value="0.55"><span class="val" id="threshold_v"></span></div>
+      <div class="row"><label>Smear</label><input type="range" id="smear" min="0" max="1" step="0.01" value="0.25"><span
+          class="val" id="smear_v"></span></div>
+      <div class="row"><label>Scanlines</label><input type="range" id="scanlines" min="0" max="1" step="0.01"
+          value="0.15"><span class="val" id="scanlines_v"></span></div>
+      <div class="row"><label>Vignette</label><input type="range" id="vignette" min="0" max="1" step="0.01"
+          value="0.35"><span class="val" id="vignette_v"></span></div>
+      <div class="row"><label>Noise</label><input type="range" id="noise" min="0" max="0.2" step="0.001"
+          value="0.03"><span class="val" id="noise_v"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Source</legend>
+      <label class="filebtn" for="file">Load image…</label>
+      <input type="file" id="file" accept="image/*">
+      <div class="row wide"><label>Fit</label>
+        <select id="fit">
+          <option value="cover" selected>cover</option>
+          <option value="contain">contain</option>
+          <option value="stretch">stretch</option>
+        </select>
+      </div>
+      <div class="row"><label>Bandlimit</label><input type="range" id="bandlimit" min="1" max="24" step="0.5"
+          value="1"><span class="val" id="bandlimit_v"></span></div>
+      <label class="check"><input type="checkbox" id="pixelMatch"> Resample to grid (1 px / cell)</label>
+      <label class="check"><input type="checkbox" id="flat"> Flat sample per cell / line</label>
+      <div class="note" id="srcInfo"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Deflection</legend>
+      <div class="row"><label>X Freq</label><input type="range" id="xFreq" min="0" max="40" step="0.01"
+          value="9.42"><span class="val" id="xFreq_v"></span></div>
+      <div class="row"><label>Y Freq</label><input type="range" id="yFreq" min="0" max="40" step="0.01"
+          value="9.42"><span class="val" id="yFreq_v"></span></div>
+      <div class="row"><label>X Phase</label><input type="range" id="xPhase" min="0" max="12.566" step="0.001"
+          value="11.85"><span class="val" id="xPhase_v"></span></div>
+      <div class="row"><label>Y Phase</label><input type="range" id="yPhase" min="0" max="12.566" step="0.001"
+          value="13.421"><span class="val" id="yPhase_v"></span></div>
+      <div class="row"><label>X Amp</label><input type="range" id="xAmp" min="0" max="60" step="0.1" value="14"><span
+          class="val" id="xAmp_v"></span></div>
+      <div class="row"><label>Y Amp</label><input type="range" id="yAmp" min="0" max="60" step="0.1" value="6"><span
+          class="val" id="yAmp_v"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Scale about pivot</legend>
+      <div class="row"><label>X Pivot</label><input type="range" id="pivotX" min="0" max="1" step="0.001"
+          value="0.5"><span class="val" id="pivotX_v"></span></div>
+      <div class="row"><label>Y Pivot</label><input type="range" id="pivotY" min="0" max="1" step="0.001"
+          value="0.5"><span class="val" id="pivotY_v"></span></div>
+      <div class="row"><label>X Scale</label><input type="range" id="xScale" min="0.1" max="2" step="0.001"
+          value="1"><span class="val" id="xScale_v"></span></div>
+      <div class="row"><label>Y Scale</label><input type="range" id="yScale" min="0.1" max="2" step="0.001"
+          value="1"><span class="val" id="yScale_v"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Grid</legend>
+      <div class="row"><label>Columns</label><input type="range" id="cols" min="16" max="512" step="1" value="365"><span
+          class="val" id="cols_v"></span></div>
+      <div class="row"><label>Rows</label><input type="range" id="rows" min="16" max="512" step="1" value="230"><span
+          class="val" id="rows_v"></span></div>
+      <div class="row"><label>Off X</label><input type="range" id="offX" min="0.05" max="1.5" step="0.001"
+          value="0.46"><span class="val" id="offX_v"></span></div>
+      <div class="row"><label>Off Y</label><input type="range" id="offY" min="0.05" max="1.5" step="0.001"
+          value="0.43"><span class="val" id="offY_v"></span></div>
+      <div class="note" id="gridNote"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Wiring</legend>
+      <label class="check"><input type="checkbox" id="cross" checked> Swap index wiring</label>
+      <label class="check"><input type="checkbox" id="order" checked> Later islands on top</label>
+      <label class="check tiles-only"><input type="checkbox" id="fracRow" checked> Fractional row index</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Motion</legend>
+      <label class="check"><input type="checkbox" id="animate" checked> Animate</label>
+      <div class="row"><label>Speed</label><input type="range" id="speed" min="0" max="3" step="0.01" value="0.5"><span
+          class="val" id="speed_v"></span></div>
+      <div class="row"><label>Zoom</label><input type="range" id="zoom" min="0.3" max="3" step="0.01" value="1"><span
+          class="val" id="zoom_v"></span></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Patch bay</legend>
+      <div class="modhead"><span>knob</span><span>wave</span><span>rate</span><span>depth</span><span>offset</span>
+      </div>
+      <div id="modRows"></div>
+      <div id="modReadout"></div>
+      <div class="btns">
+        <button id="modSeamless">Seamless phases</button>
+        <button id="modClear">Clear all</button>
+        <button id="modReset">Reset motion</button>
+      </div>
+    </fieldset>
+
+    <div class="btns">
+      <button id="presetBlender">Blender values</button>
+      <button id="presetDefault">Reset</button>
+    </div>
+  </div>
+
+  <div id="hud"></div>
+  <div id="hint">H · hide panel &nbsp; SPACE · pause &nbsp; drop an image anywhere</div>
+  <div id="err"></div>
+
+  <script type="module">
+    import { createProgramInfo, createFramebufferInfo, resizeFramebufferInfo, bindFramebufferInfo, setUniforms, createTexture } from "https://esm.sh/twgl.js@5.5.4/es2022/twgl.mjs?exports=bindFramebufferInfo,createFramebufferInfo,createProgramInfo,createTexture,resizeFramebufferInfo,setUniforms";
+    (function () {
+      'use strict';
+
+      const errBox = document.getElementById('err');
+      function fail(e) {
+        errBox.style.display = 'block';
+        errBox.textContent = (e && e.stack) ? e.stack : String(e);
+        console.error(e);
+      }
+      window.addEventListener('error', ev => fail(ev.error || ev.message));
+
+      // ─────────────────────────────────────────────────────────────
+      // Constants ported from the Blender file
+      //   Cube is 2x2x2. Array relative offset is a fraction of the
+      //   input bbox on that axis, so stride = factor x 2.
+      // ─────────────────────────────────────────────────────────────
+      const TILE = 2.0;
+
+      const P = {
+        mode: 'beam',
+        cols: 365, rows: 230, offX: 0.46, offY: 0.43,
+        xFreq: 9.42, yFreq: 9.42,
+        xPhase: 11.85, yPhase: 13.421,
+        xAmp: 14, yAmp: 6,
+        pivotX: 0.5, pivotY: 0.5,
+        xScale: 1, yScale: 1,
+        // cross = true: column index drives X, row index drives Y.
+        cross: true, order: true, fracRow: true, continuous: false,
+        animate: true, speed: 0.5, zoom: 1,
+        fit: 'cover', bandlimit: 1, pixelMatch: false, flat: false,
+        spot: 0.5, gain: 1, blend: 'add',
+        post: true, decay: 0.82, bloomAmt: 0.9, threshold: 0.55,
+        smear: 0.25, scanlines: 0.15, vignette: 0.35, noise: 0.03
+      };
+
+      const CHECKS = ['cross', 'order', 'fracRow', 'animate', 'pixelMatch', 'flat', 'continuous', 'post'];
+      const SELECTS = ['mode', 'fit', 'blend'];
+
+      const MODE_SUB = {
+        strips: 'One strip per scan line - continuous along the line',
+        tiles: 'Blender port - 365 x 230 islands - frozen UV',
+        beam: 'Gaussian beam spot - soft-blended samples'
+      };
+
+      // ─────────────────────────────────────────────────────────────
+      // Modulation — the patch bay
+      //
+      //   final = base + depth x wave(t x rate + offset)
+      //
+      // The real machine had no keyframes: operators patched ramp generators,
+      // sine/cosine oscillators, bias pots and gain stages into the deflection
+      // amplifiers and rode the knobs live. The slider in the panels above is each
+      // knob's bias — the resting value its oscillator swings around.
+      // ─────────────────────────────────────────────────────────────
+      const MOD_TARGETS = {
+        xFreq: { label: 'X Freq', max: 20, step: 0.01 },
+        yFreq: { label: 'Y Freq', max: 20, step: 0.01 },
+        xPhase: { label: 'X Phase', max: 6.283, step: 0.001 },
+        yPhase: { label: 'Y Phase', max: 6.283, step: 0.001 },
+        xAmp: { label: 'X Amp', max: 60, step: 0.1 },
+        yAmp: { label: 'Y Amp', max: 60, step: 0.1 },
+        pivotX: { label: 'X Pivot', max: 0.5, step: 0.001 },
+        pivotY: { label: 'Y Pivot', max: 0.5, step: 0.001 },
+        xScale: { label: 'X Scale', max: 1, step: 0.001 },
+        yScale: { label: 'Y Scale', max: 1, step: 0.001 }
+      };
+
+      const WAVES = [['ramp', 'ramp'], ['sine', 'sine'], ['tri', 'tri'], ['square', 'sqr'], ['noise', 'noise']];
+
+      // A ramp of depth pi sweeps a total of 2pi, so a phase parameter wraps exactly
+      // onto itself — an endless travelling wave with no visible seam.
+      const SEAMLESS = Math.PI;
+
+      const defaultMod = () => ({
+        xFreq: { wave: 'sine', rate: 0, depth: 0, offset: 0 },
+        yFreq: { wave: 'sine', rate: 0, depth: 0, offset: 0 },
+        xPhase: { wave: 'ramp', rate: 0.32, depth: SEAMLESS, offset: 0 },
+        yPhase: { wave: 'ramp', rate: 0.22, depth: SEAMLESS, offset: 0 },
+        xAmp: { wave: 'sine', rate: 0.11, depth: 5, offset: 0 },
+        yAmp: { wave: 'sine', rate: 0.084, depth: 3, offset: 0.3 },
+        pivotX: { wave: 'sine', rate: 0, depth: 0, offset: 0 },
+        pivotY: { wave: 'sine', rate: 0, depth: 0, offset: 0 },
+        xScale: { wave: 'sine', rate: 0.065, depth: 0.06, offset: 0 },
+        yScale: { wave: 'sine', rate: 0.053, depth: 0.06, offset: 0.38 }
+      });
+
+      P.mod = defaultMod();
+
+      const frac = x => x - Math.floor(x);
+      function hash(n) { const s = Math.sin(n * 127.1) * 43758.5453; return (s - Math.floor(s)) * 2 - 1; }
+
+      // All waveforms return -1 .. +1. sine, ramp and triangle are phased to start at
+      // 0 rising, so swapping between those three never jumps the value. Square is
+      // binary and noise is arbitrary at t=0; neither can honour that.
+      function wave(kind, x) {
+        switch (kind) {
+          case 'sine': return Math.sin(2 * Math.PI * x);
+          case 'ramp': return 2 * frac(x + 0.5) - 1;
+          case 'tri': return 1 - 4 * Math.abs(frac(x + 0.25) - 0.5);
+          case 'square': return frac(x) < 0.5 ? 1 : -1;
+          case 'noise': {
+            const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f);
+            return hash(i) * (1 - u) + hash(i + 1) * u;
+          }
+          default: return 0;
+        }
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // GL context
+      // ─────────────────────────────────────────────────────────────
+      // if (typeof twgl === 'undefined') {
+      //   fail('twgl did not load. Check the network tab — the CDN script tag at the ' +
+      //     'bottom of this file must resolve, and it needs an internet connection ' +
+      //     'the first time.');
+      //   return;
+      // }
+
+      const canvas = document.getElementById('gl');
+      const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, depth: false });
+      if (!gl) { fail('WebGL2 is required and is not available in this browser.'); return; }
+
+      // Needed to render INTO half-float targets. Without it the accumulation buffer
+      // falls back to 8-bit, where repeated multiplication by decay quantises hard —
+      // trails go chunky and then stick at a low value instead of fading out.
+      const hasFloat = !!gl.getExtension('EXT_color_buffer_float');
+      const COLOR_FMT = hasFloat
+        ? { internalFormat: gl.RGBA16F, format: gl.RGBA, type: gl.HALF_FLOAT }
+        : { internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE };
+
+      // Every draw in this program is attribute-less — geometry comes from
+      // gl_VertexID and gl_InstanceID — so one empty VAO stays bound forever and
+      // there is not a single vertex buffer in the file.
+      gl.bindVertexArray(gl.createVertexArray());
+
+      // ─────────────────────────────────────────────────────────────
+      // Shaders — GLSL ES 3.00
+      //
+      // The whole reason for leaving Three.js: ShaderMaterial compiles to GLSL ES
+      // 1.00, which has no gl_InstanceID, which is why the Three version uploads a
+      // 1 MB per-instance buffer of col/rowInt/rowFloat. Here the index is a real
+      // int, so integer division and modulo are exact and the buffer is gone.
+      // ─────────────────────────────────────────────────────────────
+      const GEOM_UNIFORMS = `
+uniform float uDX, uDY, uTile;
+uniform vec2  uGridMin, uGridSize;   // tile-extent box - anchors the pivot
+uniform vec2  uUvMin, uUvSize;       // projection box - anchors the UVs
+uniform vec2  uUvScale;
+uniform float uXFreq, uYFreq, uXPhase, uYPhase, uXAmp, uYAmp;
+uniform vec2  uPivot, uScale;
+uniform float uCross, uFracRow, uFlat, uContinuous;
+uniform vec4  uProj;                 // xy = scale, zw = offset
+uniform int   uCols, uCount, uSegs, uReverse;
+`;
+
+      // idxA drives the X offset, idxB the Y offset. uCross swaps which index feeds
+      // which axis; confirmed wiring against the reference is column -> X, row -> Y.
+      const DEFLECT = `
+vec2 deflect(float colSel, float rowSel) {
+  float idxA = mix(rowSel, colSel, uCross);
+  float idxB = mix(colSel, rowSel, uCross);
+  return vec2(
+    sin(idxA * (uXFreq / 80.0) + uXPhase) * uXAmp,
+    sin(idxB * (uYFreq / 80.0) + uYPhase) * uYAmp
+  );
+}
+vec2 warp(vec2 gridPos, vec2 off) {
+  vec2 pivotW = uGridMin + uPivot * uGridSize;
+  return (gridPos - pivotW) * uScale + pivotW + off;
+}
+`;
+
+      // ── TILES / BEAM ─────────────────────────────────────────────
+      const vsTiles = `#version 300 es
+precision highp float;
+${GEOM_UNIFORMS}
+out vec2 vUv;
+out vec2 vQ;
+${DEFLECT}
+void main() {
+  // Draw order is a uniform now, not a rebuilt buffer: reversing which tiles
+  // win the overlap is free.
+  int id = (uReverse == 1) ? (uCount - 1 - gl_InstanceID) : gl_InstanceID;
+
+  int col  = id % uCols;          // exact integer ops - no float32 rounding
+  int rowI = id / uCols;
+  // rowFloat is deliberately NOT floored: Blender divides the island index by
+  // 365 with a plain Divide node, so it carries a fractional per-column ramp.
+  float rowF = mix(float(rowI), float(id) / float(uCols), uFracRow);
+
+  // Unit quad from the vertex index - TRIANGLE_STRIP, 4 verts, no buffer
+  vec2 corner  = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) - 0.5;
+  vec2 centre  = vec2(float(col) * uDX, -float(rowI) * uDY);
+  vec2 gridPos = centre + corner * uTile;
+  vQ = corner * 2.0;
+
+  // FROZEN UV - sampled from the UNDISTORTED position. This is UVProject
+  // sitting above Geometry Nodes in the modifier stack, and it is the whole
+  // effect: the beam reads here, paints elsewhere.
+  vec2 uvSrc = mix(gridPos, centre, uFlat);
+  vec2 g = (uvSrc - uUvMin) / uUvSize;
+  vUv = (g - 0.5) * uUvScale + 0.5;
+
+  float colSel = mix(float(col), gridPos.x / uDX,  uContinuous);
+  float rowSel = mix(rowF,      -gridPos.y / uDY, uContinuous);
+
+  vec2 p = warp(gridPos, deflect(colSel, rowSel));
+  gl_Position = vec4(p * uProj.xy + uProj.zw, 0.0, 1.0);
+}`;
+
+      // ── STRIPS ───────────────────────────────────────────────────
+      // One tessellated quad per scan line. The column coordinate is continuous
+      // along the strip, so horizontal deflection is a smooth function of scan
+      // position - discrete ACROSS lines, continuous ALONG them, which is how the
+      // real machine behaves. No vertical tile boundaries means no vertical seams.
+      const vsStrips = `#version 300 es
+precision highp float;
+${GEOM_UNIFORMS}
+out vec2 vUv;
+out vec2 vQ;
+${DEFLECT}
+void main() {
+  int row = (uReverse == 1) ? (uCount - 1 - gl_InstanceID) : gl_InstanceID;
+
+  int i = gl_VertexID >> 1;       // segment along the strip
+  int j = gl_VertexID & 1;        // 0 = bottom edge, 1 = top edge
+  float u  = float(i) / float(uSegs);
+  float vy = float(j) - 0.5;
+
+  vec2 gridPos = vec2(uGridMin.x + u * uGridSize.x, -float(row) * uDY + vy * uTile);
+  vQ = vec2(u * 2.0 - 1.0, vy * 2.0);
+
+  // Flat sampling collapses the strip to its centre line - a true scan line
+  vec2 uvSrc = vec2(gridPos.x, mix(gridPos.y, -float(row) * uDY, uFlat));
+  vec2 g = (uvSrc - uUvMin) / uUvSize;
+  vUv = (g - 0.5) * uUvScale + 0.5;
+
+  vec2 p = warp(gridPos, deflect(gridPos.x / uDX, float(row)));
+  gl_Position = vec4(p * uProj.xy + uProj.zw, 0.0, 1.0);
+}`;
+
+      // The source texture is SRGB8_ALPHA8, so the hardware decodes to linear on
+      // fetch. Everything downstream - blur, accumulation, bloom - is linear-light,
+      // and the composite encodes back to sRGB exactly once at the very end.
+      const fsOpaque = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+in vec2 vUv; in vec2 vQ;
+out vec4 fragColor;
+void main() { fragColor = vec4(texture(uTex, clamp(vUv, 0.0, 1.0)).rgb, 1.0); }`;
+
+      // A real electron beam has a Gaussian spot profile, so samples are soft blobs
+      // rather than hard squares - an edge is impossible by construction.
+      const fsBeam = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform float uSpot, uGain;
+in vec2 vUv; in vec2 vQ;
+out vec4 fragColor;
+void main() {
+  float a = exp(-dot(vQ, vQ) / (2.0 * uSpot * uSpot));
+  vec3 c = texture(uTex, clamp(vUv, 0.0, 1.0)).rgb;
+  fragColor = vec4(c * uGain * a, a);   // premultiplied
+}`;
+
+      // ── Post chain ───────────────────────────────────────────────
+      // Fullscreen triangle straight from gl_VertexID: 0->(0,0) 1->(2,0) 2->(0,2).
+      // One triangle rather than a quad - no diagonal seam, no index buffer.
+      const vsFull = `#version 300 es
+precision highp float;
+out vec2 vUv;
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+      // Phosphor persistence. max() rather than a lerp: with additive beam blending
+      // a lerp would dim the current frame as it mixes, whereas the phosphor is only
+      // ever adding light and then decaying.
+      const fsPersist = `#version 300 es
+precision highp float;
+uniform sampler2D uScene, uPrev;
+uniform float uDecay;
+in vec2 vUv;
+out vec4 fragColor;
+void main() {
+  vec3 s = texture(uScene, vUv).rgb;
+  vec3 p = texture(uPrev,  vUv).rgb * uDecay;
+  fragColor = vec4(max(s, p), 1.0);
+}`;
+
+      const fsBright = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform float uThreshold;
+in vec2 vUv;
+out vec4 fragColor;
+void main() { fragColor = vec4(max(texture(uSrc, vUv).rgb - uThreshold, 0.0), 1.0); }`;
+
+      const fsBlur = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform vec2 uDir;
+in vec2 vUv;
+out vec4 fragColor;
+const float w0 = 0.2270270270;
+const float w1 = 0.1945945946, w2 = 0.1216216216, w3 = 0.0540540541, w4 = 0.0162162162;
+void main() {
+  vec3 s = texture(uSrc, vUv).rgb * w0;
+  s += (texture(uSrc, vUv + uDir).rgb       + texture(uSrc, vUv - uDir).rgb)       * w1;
+  s += (texture(uSrc, vUv + uDir * 2.0).rgb + texture(uSrc, vUv - uDir * 2.0).rgb) * w2;
+  s += (texture(uSrc, vUv + uDir * 3.0).rgb + texture(uSrc, vUv - uDir * 3.0).rgb) * w3;
+  s += (texture(uSrc, vUv + uDir * 4.0).rgb + texture(uSrc, vUv - uDir * 4.0).rgb) * w4;
+  fragColor = vec4(s, 1.0);
+}`;
+
+      const fsComposite = `#version 300 es
+precision highp float;
+uniform sampler2D uScene, uBloom;
+uniform vec2  uTexel;
+uniform float uBloomAmt, uSmear, uScanlines, uVignette, uNoise, uLines, uTime;
+in vec2 vUv;
+out vec4 fragColor;
+
+vec3 toSRGB(vec3 c) {
+  c = clamp(c, 0.0, 1.0);
+  return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));
+}
+
+void main() {
+  // Horizontal smear - limited video bandwidth made the signal lag behind the
+  // sweep, so the tail trails in the scan direction only. Asymmetric on purpose.
+  vec3 acc = texture(uScene, vUv).rgb;
+  float tw = 1.0;
+  for (int i = 1; i <= 6; i++) {
+    float w = uSmear * exp(-float(i) * 0.5);
+    acc += texture(uScene, vUv - vec2(float(i) * uTexel.x * 8.0, 0.0)).rgb * w;
+    tw  += w;
+  }
+  vec3 c = acc / tw;
+
+  c += texture(uBloom, vUv).rgb * uBloomAmt;
+
+  // Raster structure, tied to the row count so lines land on the strips
+  float sl = 0.5 + 0.5 * cos(6.2831853 * vUv.y * uLines);
+  c *= mix(1.0, sl, uScanlines);
+
+  vec2 d = vUv - 0.5;
+  c *= mix(1.0, 1.0 - dot(d, d) * 1.6, uVignette);
+
+  float n = fract(sin(dot(vUv * 613.0 + uTime, vec2(12.9898, 78.233))) * 43758.5453);
+  c += (n - 0.5) * uNoise;
+
+  fragColor = vec4(toSRGB(c), 1.0);
+}`;
+
+      // createProgramInfo does NOT throw on a shader error — it logs to the console
+      // and returns null, which would leave useProgram(null) drawing nothing at all.
+      // Capture the compile log and turn it into a visible failure instead.
+      function program(vs, fs, name) {
+        let log = '';
+        const pi = createProgramInfo(gl, [vs, fs], {
+          errorCallback: m => { log += m + '\n'; }
+        });
+        if (!pi) throw new Error('Shader program "' + name + '" failed to build:\n\n' + log);
+        return pi;
+      }
+
+      let piTiles, piBeam, piStrips, piPersist, piBright, piBlur, piComposite;
+      try {
+        piTiles = program(vsTiles, fsOpaque, 'tiles');
+        piBeam = program(vsTiles, fsBeam, 'beam');
+        piStrips = program(vsStrips, fsOpaque, 'strips');
+        piPersist = program(vsFull, fsPersist, 'persist');
+        piBright = program(vsFull, fsBright, 'bright');
+        piBlur = program(vsFull, fsBlur, 'blur');
+        piComposite = program(vsFull, fsComposite, 'composite');
+      } catch (e) { fail(e); return; }
+
+      // ─────────────────────────────────────────────────────────────
+      // Framebuffers
+      // ─────────────────────────────────────────────────────────────
+      const ATT = [Object.assign({ minMag: gl.LINEAR, wrap: gl.CLAMP_TO_EDGE }, COLOR_FMT)];
+      let fbScene = null, fbAccum = [], fbBloom = [];
+      let fbW = 0, fbH = 0;
+
+      function makeFBOs(w, h) {
+        const hw = Math.max(1, w >> 1), hh = Math.max(1, h >> 1);
+        if (!fbScene) {
+          fbScene = createFramebufferInfo(gl, ATT, w, h);
+          fbAccum = [createFramebufferInfo(gl, ATT, w, h),
+          createFramebufferInfo(gl, ATT, w, h)];
+          fbBloom = [createFramebufferInfo(gl, ATT, hw, hh),
+          createFramebufferInfo(gl, ATT, hw, hh)];
+        } else {
+          resizeFramebufferInfo(gl, fbScene, ATT, w, h);
+          fbAccum.forEach(f => resizeFramebufferInfo(gl, f, ATT, w, h));
+          fbBloom.forEach(f => resizeFramebufferInfo(gl, f, ATT, hw, hh));
+        }
+        // Resizing leaves the accumulation buffers holding stale garbage
+        fbAccum.forEach(f => {
+          bindFramebufferInfo(gl, f);
+          gl.clearColor(0, 0, 0, 1);
+          gl.clear(gl.COLOR_BUFFER_BIT);
+        });
+        fbW = w; fbH = h;
+      }
+
+      function fullscreen(pi, uniforms, target) {
+        bindFramebufferInfo(gl, target);   // also sets the viewport
+        gl.useProgram(pi.program);
+        setUniforms(pi, uniforms);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // Grid bounds + projection
+      // ─────────────────────────────────────────────────────────────
+      const gridMin = [0, 0], gridMax = [0, 0], gridSize = [1, 1];
+      const uvMin = [0, 0], uvSize = [1, 1], uvScale = [1, 1];
+      const proj = [1, 1, 0, 0];
+
+      // ─────────────────────────────────────────────────────────────
+      // Source pipeline (library-agnostic — plain canvas 2D)
+      // ─────────────────────────────────────────────────────────────
+      let srcEl = null, srcW = 1, srcH = 1, srcTex = null;
+
+      // Visual aspect of the content area. This is the STRIDE box, not the pixel
+      // count: cells sit 0.92 x 0.86 apart, so 365 x 230 displays at 1.698:1, not
+      // at 365/230 = 1.587:1.
+      const contentAspect = () => (P.cols * P.offX) / (P.rows * P.offY);
+
+      // Horizontal bandlimit - downscale on X only, then scale back up. The analog
+      // chain had limited video bandwidth, so high horizontal frequencies simply
+      // never existed and there was nothing to alias along the scan direction.
+      function bandlimit(el, w, h, k) {
+        const kw = Math.max(1, Math.round(w / k));
+        const a = document.createElement('canvas'); a.width = kw; a.height = h;
+        const ga = a.getContext('2d');
+        ga.imageSmoothingEnabled = true; ga.imageSmoothingQuality = 'high';
+        ga.drawImage(el, 0, 0, w, h, 0, 0, kw, h);
+
+        const b = document.createElement('canvas'); b.width = w; b.height = h;
+        const gb = b.getContext('2d');
+        gb.imageSmoothingEnabled = true; gb.imageSmoothingQuality = 'high';
+        gb.drawImage(a, 0, 0, kw, h, 0, 0, w, h);
+        return b;
+      }
+
+      // Redraw at exactly one pixel per cell, baking the fit crop in so the result
+      // maps 1:1 onto the grid with no leftover scaling.
+      function resampleToGrid(el, w, h) {
+        const cols = P.cols, rows = P.rows;
+        const c = document.createElement('canvas');
+        c.width = cols; c.height = rows;
+        const g = c.getContext('2d');
+        g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+        g.fillStyle = '#000'; g.fillRect(0, 0, cols, rows);
+
+        const T = contentAspect(), A = w / h;
+        if (P.fit === 'stretch') {
+          g.drawImage(el, 0, 0, w, h, 0, 0, cols, rows);
+        } else if (P.fit === 'cover') {
+          let sw, sh;
+          if (A > T) { sh = h; sw = h * T; } else { sw = w; sh = w / T; }
+          g.drawImage(el, (w - sw) / 2, (h - sh) / 2, sw, sh, 0, 0, cols, rows);
+        } else {
+          let dw, dh;
+          if (A > T) { dw = cols; dh = rows * T / A; } else { dh = rows; dw = cols * A / T; }
+          g.drawImage(el, 0, 0, w, h, (cols - dw) / 2, (rows - dh) / 2, dw, dh);
+        }
+        return c;
+      }
+
+      function updateUvMapping() {
+        const dx = P.offX * TILE, dy = P.offY * TILE;
+
+        if (P.pixelMatch) {
+          // Project the STRIDE box, not the tile-extent box, so cell centre `col`
+          // lands exactly on pixel centre (col + 0.5) / cols. The fit crop is
+          // already baked in, so no aspect scaling remains.
+          uvMin[0] = -dx / 2; uvMin[1] = -(P.rows - 1) * dy - dy / 2;
+          uvSize[0] = P.cols * dx; uvSize[1] = P.rows * dy;
+          uvScale[0] = 1; uvScale[1] = 1;
+          return;
+        }
+
+        uvMin[0] = gridMin[0]; uvMin[1] = gridMin[1];
+        uvSize[0] = gridSize[0]; uvSize[1] = gridSize[1];
+
+        const gridAspect = gridSize[0] / gridSize[1], imgAspect = srcW / srcH;
+        let sx = 1, sy = 1;
+        if (P.fit === 'cover') {
+          if (imgAspect > gridAspect) sx = gridAspect / imgAspect; else sy = imgAspect / gridAspect;
+        } else if (P.fit === 'contain') {
+          if (imgAspect > gridAspect) sy = imgAspect / gridAspect; else sx = gridAspect / imgAspect;
+        }
+        uvScale[0] = sx; uvScale[1] = sy;
+      }
+
+      function rebuildTexture() {
+        if (!srcEl) { updateUvMapping(); return; }
+
+        let el = srcEl, w = srcW, h = srcH;
+        const notes = [];
+        if (P.bandlimit > 1.01) { el = bandlimit(el, w, h, P.bandlimit); notes.push('bandlimit ' + P.bandlimit + 'x'); }
+        if (P.pixelMatch) { el = resampleToGrid(el, w, h); w = P.cols; h = P.rows; notes.push('to ' + w + 'x' + h); }
+
+        // Nearest only when resampled - the point there is one flat source pixel per
+        // cell, and bilinear would smear neighbours back together.
+        const f = P.pixelMatch ? gl.NEAREST : gl.LINEAR;
+        if (srcTex) gl.deleteTexture(srcTex);
+        srcTex = createTexture(gl, {
+          src: el,
+          internalFormat: gl.SRGB8_ALPHA8,   // hardware sRGB -> linear on fetch
+          format: gl.RGBA, type: gl.UNSIGNED_BYTE,
+          min: f, mag: f,
+          wrap: gl.CLAMP_TO_EDGE,
+          flipY: 1,                          // v = 0 at the bottom, matching the grid
+          auto: false                        // no mips: they'd blur the smear
+        });
+
+        updateUvMapping();
+        notes.push(P.pixelMatch ? 'nearest' : 'linear');
+        document.getElementById('srcInfo').textContent = srcW + 'x' + srcH + ' - ' + notes.join(' - ');
+      }
+
+      function setSource(el, w, h) { srcEl = el; srcW = w; srcH = h; rebuildTexture(); }
+
+      // High-contrast artwork, which is what the original hardware needed and what
+      // makes the warp legible.
+      function defaultImage() {
+        const c = document.createElement('canvas');
+        c.width = 1200; c.height = 700;
+        const x = c.getContext('2d');
+        x.fillStyle = '#000'; x.fillRect(0, 0, 1200, 700);
+        x.fillStyle = '#fff'; x.beginPath(); x.arc(300, 300, 170, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#000'; x.beginPath(); x.arc(300, 300, 96, 0, Math.PI * 2); x.fill();
+        x.fillStyle = '#fff'; x.beginPath(); x.arc(300, 300, 44, 0, Math.PI * 2); x.fill();
+        for (let i = 0; i < 7; i++) x.fillRect(600, 150 + i * 44, 480, 22);
+        x.font = '900 168px Helvetica, Arial, sans-serif';
+        x.textBaseline = 'middle';
+        x.fillText('SCAN', 90, 560);
+        x.font = '900 118px Helvetica, Arial, sans-serif';
+        x.fillText('IMATE', 620, 570);
+        setSource(c, 1200, 700);
+      }
+
+      function loadFile(f) {
+        if (!f || !f.type.startsWith('image/')) return;
+        const url = URL.createObjectURL(f);
+        const img = new Image();
+        img.onload = () => { setSource(img, img.naturalWidth, img.naturalHeight); URL.revokeObjectURL(url); };
+        img.onerror = () => { fail('Could not decode that image.'); URL.revokeObjectURL(url); };
+        img.src = url;
+      }
+
+      function updateGrid() {
+        const dx = P.offX * TILE, dy = P.offY * TILE;
+        // Bounds are identical in every mode, so switching never reframes the shot
+        gridMin[0] = -TILE / 2; gridMin[1] = -(P.rows - 1) * dy - TILE / 2;
+        gridMax[0] = (P.cols - 1) * dx + TILE / 2; gridMax[1] = TILE / 2;
+        gridSize[0] = gridMax[0] - gridMin[0];
+        gridSize[1] = gridMax[1] - gridMin[1];
+        if (P.pixelMatch) rebuildTexture(); else updateUvMapping();
+        resize();
+        updateHud();
+      }
+
+      // A 2D orthographic projection with no rotation is four numbers, not two
+      // 4x4 matrices - one of the things that gets simpler off Three.js.
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
+        const h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+        if (w !== canvas.width || h !== canvas.height) { canvas.width = w; canvas.height = h; }
+        if (w !== fbW || h !== fbH) makeFBOs(w, h);
+
+        const screenAspect = w / h, gridAspect = gridSize[0] / gridSize[1];
+        let vw, vh;
+        if (screenAspect > gridAspect) { vh = gridSize[1]; vw = vh * screenAspect; }
+        else { vw = gridSize[0]; vh = vw / screenAspect; }
+        vw /= P.zoom; vh /= P.zoom;
+
+        const cx = (gridMin[0] + gridMax[0]) / 2, cy = (gridMin[1] + gridMax[1]) / 2;
+        const l = cx - vw / 2, r = cx + vw / 2, bo = cy - vh / 2, to = cy + vh / 2;
+        proj[0] = 2 / (r - l); proj[2] = -(r + l) / (r - l);
+        proj[1] = 2 / (to - bo); proj[3] = -(to + bo) / (to - bo);
+      }
+      window.addEventListener('resize', resize);
+
+      // ─────────────────────────────────────────────────────────────
+      // Controls
+      // ─────────────────────────────────────────────────────────────
+      const $ = id => document.getElementById(id);
+      const sliders = ['xFreq', 'yFreq', 'xPhase', 'yPhase', 'xAmp', 'yAmp', 'pivotX', 'pivotY',
+        'xScale', 'yScale', 'cols', 'rows', 'offX', 'offY', 'speed', 'zoom',
+        'bandlimit', 'spot', 'gain',
+        'decay', 'bloomAmt', 'threshold', 'smear', 'scanlines', 'vignette', 'noise'];
+      const rebuilders = new Set(['cols', 'rows', 'offX', 'offY']);
+
+      function label(k, v) {
+        const el = $(k + '_v');
+        if (el) el.textContent = (k === 'cols' || k === 'rows') ? v : (+v).toFixed(2);
+      }
+
+      function syncModeUI() {
+        const isBeam = P.mode === 'beam', isTiles = P.mode !== 'strips';
+        document.querySelectorAll('.beam-only').forEach(e => e.style.display = isBeam ? '' : 'none');
+        document.querySelectorAll('.tiles-only').forEach(e => e.style.display = isTiles ? '' : 'none');
+        $('modeSub').textContent = MODE_SUB[P.mode];
+        $('gridNote').textContent = P.mode === 'strips' ? 'Columns = segments along each strip' : '';
+      }
+
+      sliders.forEach(k => {
+        const el = $(k);
+        el.value = P[k];
+        label(k, P[k]);
+        el.addEventListener('input', () => {
+          P[k] = parseFloat(el.value);
+          label(k, P[k]);
+          if (rebuilders.has(k)) updateGrid();
+          else if (k === 'zoom') resize();
+          else if (k === 'bandlimit') rebuildTexture();
+        });
+      });
+
+      // Push P -> DOM before wiring anything up. Browsers restore form state across
+      // reloads, which silently desyncs a control that *looks* set from the JS
+      // default that never fired a change event.
+      function syncChecks() {
+        CHECKS.forEach(k => { $(k).checked = P[k]; });
+        SELECTS.forEach(k => { $(k).value = P[k]; });
+      }
+      syncChecks();
+      syncModeUI();
+
+      // ── Patch bay ────────────────────────────────────────────────
+      const modIsLive = k => P.mod[k].depth > 0;
+
+      function buildModRows() {
+        const wrap = $('modRows');
+        wrap.innerHTML = '';
+        const opts = WAVES.map(w => '<option value="' + w[0] + '">' + w[1] + '</option>').join('');
+        Object.keys(MOD_TARGETS).forEach(k => {
+          const t = MOD_TARGETS[k];
+          const row = document.createElement('div');
+          row.className = 'modrow';
+          row.dataset.k = k;
+          row.innerHTML =
+            '<span class="mk">' + t.label + '</span>' +
+            '<select data-f="wave">' + opts + '</select>' +
+            '<input type="range" data-f="rate"   min="0" max="2" step="0.001">' +
+            '<input type="range" data-f="depth"  min="0" max="' + t.max + '" step="' + t.step + '">' +
+            '<input type="range" data-f="offset" min="0" max="1" step="0.001">';
+          wrap.appendChild(row);
+        });
+      }
+
+      function loadModRows() {
+        $('modRows').querySelectorAll('.modrow').forEach(row => {
+          const m = P.mod[row.dataset.k];
+          row.querySelectorAll('[data-f]').forEach(el => { el.value = m[el.dataset.f]; });
+          row.classList.toggle('live', modIsLive(row.dataset.k));
+        });
+        Object.keys(MOD_TARGETS).forEach(k => {
+          const r = $(k) && $(k).closest('.row');
+          if (r) r.classList.toggle('anim', modIsLive(k));
+        });
+      }
+
+      // There is no room for a value readout on every one of 40 controls, so a
+      // single shared line reports whatever was touched last.
+      function showReadout(k, f, v) {
+        $('modReadout').textContent =
+          MOD_TARGETS[k].label + ' - ' + f + ' ' + (typeof v === 'number' ? v.toFixed(3) : v);
+      }
+
+      // Selects fire 'change' everywhere but only 'input' in some browsers, so listen
+      // for both - the write is idempotent so a double fire is harmless.
+      function onModEdit(e) {
+        const row = e.target.closest('.modrow');
+        if (!row || !e.target.dataset.f) return;
+        const k = row.dataset.k, f = e.target.dataset.f;
+        const v = (f === 'wave') ? e.target.value : parseFloat(e.target.value);
+        P.mod[k][f] = v;
+        showReadout(k, f, v);
+        if (f === 'depth') loadModRows();
+      }
+      $('modRows').addEventListener('input', onModEdit);
+      $('modRows').addEventListener('change', onModEdit);
+
+      $('modSeamless').addEventListener('click', () => {
+        ['xPhase', 'yPhase'].forEach(k => {
+          const m = P.mod[k];
+          m.wave = 'ramp';
+          m.depth = SEAMLESS;
+          if (m.rate === 0) m.rate = 0.25;
+        });
+        loadModRows();
+        $('modReadout').textContent = 'phases to ramp, depth pi (seamless)';
+      });
+
+      $('modClear').addEventListener('click', () => {
+        Object.keys(MOD_TARGETS).forEach(k => { P.mod[k].depth = 0; });
+        loadModRows();
+        $('modReadout').textContent = 'all knobs cleared';
+      });
+
+      $('modReset').addEventListener('click', () => {
+        P.mod = defaultMod();
+        loadModRows();
+        $('modReadout').textContent = 'motion reset';
+      });
+
+      $('mode').addEventListener('change', e => { P.mode = e.target.value; syncModeUI(); updateHud(); });
+      $('blend').addEventListener('change', e => { P.blend = e.target.value; });
+      $('fit').addEventListener('change', e => { P.fit = e.target.value; rebuildTexture(); });
+      $('cross').addEventListener('change', e => { P.cross = e.target.checked; });
+      $('order').addEventListener('change', e => { P.order = e.target.checked; });
+      $('fracRow').addEventListener('change', e => { P.fracRow = e.target.checked; });
+      $('continuous').addEventListener('change', e => { P.continuous = e.target.checked; });
+      $('animate').addEventListener('change', e => { P.animate = e.target.checked; });
+      $('post').addEventListener('change', e => { P.post = e.target.checked; });
+      $('pixelMatch').addEventListener('change', e => { P.pixelMatch = e.target.checked; rebuildTexture(); });
+      $('flat').addEventListener('change', e => { P.flat = e.target.checked; });
+      $('file').addEventListener('change', e => loadFile(e.target.files[0]));
+
+      document.addEventListener('dragover', e => e.preventDefault());
+      document.addEventListener('drop', e => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+      });
+
+      function applyPreset(vals) {
+        Object.assign(P, vals);
+        sliders.forEach(k => { $(k).value = P[k]; label(k, P[k]); });
+        syncChecks();
+        syncModeUI();
+        loadModRows();
+        rebuildTexture();
+        updateGrid();
+      }
+
+      // Exact values off the Blender modifier panel. The pivot sits ~1% in from the
+      // top-left corner, so scale < 1 shrinks the image toward that corner rather
+      // than toward the middle - that is what the file does. Post off, so the frame
+      // reads as the raw port.
+      $('presetBlender').addEventListener('click', () => applyPreset({
+        mode: 'tiles', cols: 365, rows: 230, offX: 0.46, offY: 0.43,
+        xFreq: 9.42, yFreq: 9.42, xPhase: 11.85, yPhase: 13.421,
+        xAmp: 0, yAmp: 0, pivotX: 0.0135, pivotY: 0.983,
+        xScale: 0.65, yScale: 0.69,
+        cross: true, continuous: false, bandlimit: 1, pixelMatch: false, flat: false,
+        animate: false, post: false, mod: defaultMod()
+      }));
+
+      $('presetDefault').addEventListener('click', () => applyPreset({
+        mode: 'beam', cols: 365, rows: 230, offX: 0.46, offY: 0.43,
+        xFreq: 9.42, yFreq: 9.42, xPhase: 11.85, yPhase: 13.421,
+        xAmp: 14, yAmp: 6, pivotX: 0.5, pivotY: 0.5, xScale: 1, yScale: 1,
+        speed: 0.5, zoom: 1, bandlimit: 1,
+        cross: true, order: true, fracRow: true, continuous: false,
+        pixelMatch: false, flat: false, animate: true,
+        blend: 'add', spot: 0.5, gain: 1,
+        post: true, decay: 0.82, bloomAmt: 0.9, threshold: 0.55,
+        smear: 0.25, scanlines: 0.15, vignette: 0.35, noise: 0.03,
+        mod: defaultMod()
+      }));
+
+      let paused = false;
+      window.addEventListener('keydown', e => {
+        if (e.code === 'Space') { e.preventDefault(); paused = !paused; }
+        if (e.key === 'h' || e.key === 'H') $('ui').classList.toggle('hidden');
+      });
+
+      // ─────────────────────────────────────────────────────────────
+      // Loop
+      // ─────────────────────────────────────────────────────────────
+      const hud = document.getElementById('hud');
+      let t = 0, last = performance.now(), frames = 0, fpsClock = last, fps = 0;
+
+      // base + depth x wave(t . rate + offset).
+      // `animate` off returns the bare base value, so the Blender preset reads
+      // exactly the panel numbers. SPACE instead freezes t, which holds the current
+      // modulated pose - two different kinds of "stop".
+      function mod(k) {
+        if (!P.animate) return P[k];
+        const m = P.mod[k];
+        return P[k] + m.depth * wave(m.wave, t * m.rate + m.offset);
+      }
+
+      function updateHud() {
+        const count = P.mode === 'strips'
+          ? P.rows + ' strips x ' + P.cols + ' segs'
+          : (P.cols * P.rows).toLocaleString() + ' islands';
+        hud.textContent = count + ' - ' + fps + ' fps - twgl' +
+          (hasFloat ? ' - fp16' : ' - 8-bit (no EXT_color_buffer_float)');
+      }
+
+      function drawGeometry() {
+        bindFramebufferInfo(gl, fbScene);
+        gl.clearColor(0, 0, 0, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+
+        const strips = P.mode === 'strips';
+        const beam = P.mode === 'beam';
+        const pi = strips ? piStrips : (beam ? piBeam : piTiles);
+
+        if (beam) {
+          gl.enable(gl.BLEND);
+          // Premultiplied alpha, so 'over' and 'additive' share one fragment shader
+          if (P.blend === 'add') gl.blendFunc(gl.ONE, gl.ONE);
+          else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        } else {
+          gl.disable(gl.BLEND);
+        }
+
+        const count = strips ? P.rows : P.cols * P.rows;
+
+        gl.useProgram(pi.program);
+        setUniforms(pi, {
+          uTex: srcTex,
+          uDX: P.offX * TILE, uDY: P.offY * TILE, uTile: TILE,
+          uGridMin: gridMin, uGridSize: gridSize,
+          uUvMin: uvMin, uUvSize: uvSize, uUvScale: uvScale,
+          uXFreq: mod('xFreq'), uYFreq: mod('yFreq'),
+          uXPhase: mod('xPhase'), uYPhase: mod('yPhase'),
+          uXAmp: Math.max(0, mod('xAmp')), uYAmp: Math.max(0, mod('yAmp')),
+          uPivot: [mod('pivotX'), mod('pivotY')],
+          uScale: [Math.max(0.02, mod('xScale')), Math.max(0.02, mod('yScale'))],
+          uCross: P.cross ? 1 : 0,
+          uFracRow: P.fracRow ? 1 : 0,
+          uFlat: P.flat ? 1 : 0,
+          uContinuous: P.continuous ? 1 : 0,
+          uProj: proj,
+          uCols: P.cols, uCount: count, uSegs: P.cols,
+          uReverse: P.order ? 0 : 1,
+          uSpot: P.spot, uGain: P.gain
+        });
+
+        // Attribute-less: 4 verts as a strip for a quad, (segs+1)x2 for a scan line
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, strips ? (P.cols + 1) * 2 : 4, count);
+        gl.disable(gl.BLEND);
+      }
+
+      function tick(now) {
+        requestAnimationFrame(tick);
+        const dt = Math.min((now - last) / 1000, 0.1);
+        last = now;
+        if (!paused && P.animate) t += dt * P.speed;
+
+        resize();
+        drawGeometry();
+
+        const on = P.post ? 1 : 0;
+
+        // 1 - phosphor persistence (ping-pong; decay 0 is a clean pass-through)
+        fullscreen(piPersist, {
+          uScene: fbScene.attachments[0],
+          uPrev: fbAccum[0].attachments[0],
+          uDecay: P.decay * on
+        }, fbAccum[1]);
+        fbAccum.reverse();
+        const lit = fbAccum[0].attachments[0];
+
+        // 2 - bright-pass at half res, then separable blur -> bloom
+        fullscreen(piBright, { uSrc: lit, uThreshold: P.threshold }, fbBloom[0]);
+        const bw = fbBloom[0].width, bh = fbBloom[0].height;
+        fullscreen(piBlur, { uSrc: fbBloom[0].attachments[0], uDir: [1 / bw, 0] }, fbBloom[1]);
+        fullscreen(piBlur, { uSrc: fbBloom[1].attachments[0], uDir: [0, 1 / bh] }, fbBloom[0]);
+
+        // 3 - composite to the canvas: the only sRGB encode in the whole chain
+        fullscreen(piComposite, {
+          uScene: lit,
+          uBloom: fbBloom[0].attachments[0],
+          uTexel: [1 / fbW, 1 / fbH],
+          uBloomAmt: P.bloomAmt * on,
+          uSmear: P.smear * on,
+          uScanlines: P.scanlines * on,
+          uVignette: P.vignette * on,
+          uNoise: P.noise * on,
+          uLines: P.rows,
+          uTime: now * 0.001
+        }, null);
+
+        frames++;
+        if (now - fpsClock > 500) {
+          fps = Math.round(frames * 1000 / (now - fpsClock));
+          frames = 0; fpsClock = now;
+          updateHud();
+        }
+      }
+
+      try {
+        buildModRows();
+        loadModRows();
+        defaultImage();
+        updateGrid();
+        requestAnimationFrame(tick);
+      } catch (e) { fail(e); }
+
+    })();
+  </script>
+</body>
+
+</html>
