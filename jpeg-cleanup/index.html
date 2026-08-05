@@ -1,181 +1,185 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-<title>Artifact Cleanup</title>
+  <title>Artifact Cleanup</title>
 </head>
+
 <body>
 
-<h3>Remove JPEG Artifacting (grayscale + blur + level stretch)</h3>
-<input type="file" id="fileInput" accept="image/*">
-<br><br>
-<label>Blur radius: <input type="number" id="blurRadius" value="1" min="0" max="10" step="0.5"></label>
-<label style="margin-left:20px">Low %: <input type="number" id="lowPct" value="20" min="0" max="100"></label>
-<label style="margin-left:20px">High %: <input type="number" id="highPct" value="80" min="0" max="100"></label>
-<label style="margin-left:20px">Black snap threshold: <input type="number" id="blackSnap" value="20" min="0" max="255"></label>
-<br><br>
-<button id="processBtn">Process</button>
-<button id="downloadBtn">Download PNG</button>
+  <h3>Remove JPEG Artifacting (grayscale + blur + level stretch)</h3>
+  <input type="file" id="fileInput" accept="image/*">
+  <br><br>
+  <label>Blur radius: <input type="number" id="blurRadius" value="1" min="0" max="10" step="0.5"></label>
+  <label style="margin-left:20px">Low %: <input type="number" id="lowPct" value="20" min="0" max="100"></label>
+  <label style="margin-left:20px">High %: <input type="number" id="highPct" value="80" min="0" max="100"></label>
+  <label style="margin-left:20px">Black snap threshold: <input type="number" id="blackSnap" value="20" min="0"
+      max="255"></label>
+  <br><br>
+  <button id="processBtn">Process</button>
+  <button id="downloadBtn">Download PNG</button>
 
-<h4>Original</h4>
-<canvas id="srcCanvas"></canvas>
+  <h4>Original</h4>
+  <canvas id="srcCanvas"></canvas>
 
-<h4>Result</h4>
-<canvas id="outCanvas"></canvas>
+  <h4>Result</h4>
+  <canvas id="outCanvas"></canvas>
 
-<script>
-const fileInput = document.getElementById('fileInput');
-const srcCanvas = document.getElementById('srcCanvas');
-const outCanvas = document.getElementById('outCanvas');
-const srcCtx = srcCanvas.getContext('2d');
-const outCtx = outCanvas.getContext('2d');
-let img = new Image();
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const srcCanvas = document.getElementById('srcCanvas');
+    const outCanvas = document.getElementById('outCanvas');
+    const srcCtx = srcCanvas.getContext('2d');
+    const outCtx = outCanvas.getContext('2d');
+    let img = new Image();
 
-fileInput.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    img.onload = () => {
-      srcCanvas.width = outCanvas.width = img.width;
-      srcCanvas.height = outCanvas.height = img.height;
-      srcCtx.drawImage(img, 0, 0);
-      outCtx.drawImage(img, 0, 0);
-      processImage();
-    };
-    img.src = evt.target.result;
-  };
-  reader.readAsDataURL(file);
-});
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        img.onload = () => {
+          srcCanvas.width = outCanvas.width = img.width;
+          srcCanvas.height = outCanvas.height = img.height;
+          srcCtx.drawImage(img, 0, 0);
+          outCtx.drawImage(img, 0, 0);
+          processImage();
+        };
+        img.src = evt.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
 
-function grayscale(imageData) {
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
-  }
-  return imageData;
-}
-
-function gaussianBlur(imageData, radius) {
-  if (radius <= 0) return imageData;
-  const w = imageData.width, h = imageData.height;
-  const src = imageData.data;
-  const sigma = radius;
-  const kernelRadius = Math.ceil(sigma * 3);
-  const kernel = [];
-  let kernelSum = 0;
-  for (let i = -kernelRadius; i <= kernelRadius; i++) {
-    const v = Math.exp(-(i * i) / (2 * sigma * sigma));
-    kernel.push(v);
-    kernelSum += v;
-  }
-  for (let i = 0; i < kernel.length; i++) kernel[i] /= kernelSum;
-
-  const temp = new Float32Array(src.length);
-  // horizontal pass
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let r = 0, g = 0, b = 0, a = 0;
-      for (let k = -kernelRadius; k <= kernelRadius; k++) {
-        let xx = x + k;
-        if (xx < 0) xx = 0;
-        if (xx >= w) xx = w - 1;
-        const idx = (y * w + xx) * 4;
-        const weight = kernel[k + kernelRadius];
-        r += src[idx] * weight;
-        g += src[idx + 1] * weight;
-        b += src[idx + 2] * weight;
-        a += src[idx + 3] * weight;
+    function grayscale(imageData) {
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
       }
-      const outIdx = (y * w + x) * 4;
-      temp[outIdx] = r;
-      temp[outIdx + 1] = g;
-      temp[outIdx + 2] = b;
-      temp[outIdx + 3] = a;
+      return imageData;
     }
-  }
-  // vertical pass
-  const out = new Uint8ClampedArray(src.length);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let r = 0, g = 0, b = 0, a = 0;
-      for (let k = -kernelRadius; k <= kernelRadius; k++) {
-        let yy = y + k;
-        if (yy < 0) yy = 0;
-        if (yy >= h) yy = h - 1;
-        const idx = (yy * w + x) * 4;
-        const weight = kernel[k + kernelRadius];
-        r += temp[idx] * weight;
-        g += temp[idx + 1] * weight;
-        b += temp[idx + 2] * weight;
-        a += temp[idx + 3] * weight;
+
+    function gaussianBlur(imageData, radius) {
+      if (radius <= 0) return imageData;
+      const w = imageData.width, h = imageData.height;
+      const src = imageData.data;
+      const sigma = radius;
+      const kernelRadius = Math.ceil(sigma * 3);
+      const kernel = [];
+      let kernelSum = 0;
+      for (let i = -kernelRadius; i <= kernelRadius; i++) {
+        const v = Math.exp(-(i * i) / (2 * sigma * sigma));
+        kernel.push(v);
+        kernelSum += v;
       }
-      const outIdx = (y * w + x) * 4;
-      out[outIdx] = r;
-      out[outIdx + 1] = g;
-      out[outIdx + 2] = b;
-      out[outIdx + 3] = a;
+      for (let i = 0; i < kernel.length; i++) kernel[i] /= kernelSum;
+
+      const temp = new Float32Array(src.length);
+      // horizontal pass
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let r = 0, g = 0, b = 0, a = 0;
+          for (let k = -kernelRadius; k <= kernelRadius; k++) {
+            let xx = x + k;
+            if (xx < 0) xx = 0;
+            if (xx >= w) xx = w - 1;
+            const idx = (y * w + xx) * 4;
+            const weight = kernel[k + kernelRadius];
+            r += src[idx] * weight;
+            g += src[idx + 1] * weight;
+            b += src[idx + 2] * weight;
+            a += src[idx + 3] * weight;
+          }
+          const outIdx = (y * w + x) * 4;
+          temp[outIdx] = r;
+          temp[outIdx + 1] = g;
+          temp[outIdx + 2] = b;
+          temp[outIdx + 3] = a;
+        }
+      }
+      // vertical pass
+      const out = new Uint8ClampedArray(src.length);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let r = 0, g = 0, b = 0, a = 0;
+          for (let k = -kernelRadius; k <= kernelRadius; k++) {
+            let yy = y + k;
+            if (yy < 0) yy = 0;
+            if (yy >= h) yy = h - 1;
+            const idx = (yy * w + x) * 4;
+            const weight = kernel[k + kernelRadius];
+            r += temp[idx] * weight;
+            g += temp[idx + 1] * weight;
+            b += temp[idx + 2] * weight;
+            a += temp[idx + 3] * weight;
+          }
+          const outIdx = (y * w + x) * 4;
+          out[outIdx] = r;
+          out[outIdx + 1] = g;
+          out[outIdx + 2] = b;
+          out[outIdx + 3] = a;
+        }
+      }
+      return new ImageData(out, w, h);
     }
-  }
-  return new ImageData(out, w, h);
-}
 
-function levelStretch(imageData, lowPct, highPct) {
-  const data = imageData.data;
-  const low = (lowPct / 100) * 255;
-  const high = (highPct / 100) * 255;
-  const range = high - low;
-  for (let i = 0; i < data.length; i += 4) {
-    for (let c = 0; c < 3; c++) {
-      let v = data[i + c];
-      v = ((v - low) / range) * 255;
-      data[i + c] = Math.max(0, Math.min(255, v));
+    function levelStretch(imageData, lowPct, highPct) {
+      const data = imageData.data;
+      const low = (lowPct / 100) * 255;
+      const high = (highPct / 100) * 255;
+      const range = high - low;
+      for (let i = 0; i < data.length; i += 4) {
+        for (let c = 0; c < 3; c++) {
+          let v = data[i + c];
+          v = ((v - low) / range) * 255;
+          data[i + c] = Math.max(0, Math.min(255, v));
+        }
+      }
+      return imageData;
     }
-  }
-  return imageData;
-}
 
-function snapBlack(imageData, threshold) {
-  const data = imageData.data;
-  for (let i = 0; i < data.length; i += 4) {
-    if (data[i] <= threshold) {
-      data[i] = 0;
-      data[i + 1] = 0;
-      data[i + 2] = 0;
+    function snapBlack(imageData, threshold) {
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] <= threshold) {
+          data[i] = 0;
+          data[i + 1] = 0;
+          data[i + 2] = 0;
+        }
+      }
+      return imageData;
     }
-  }
-  return imageData;
-}
 
-function processImage() {
-  if (!img.src) return;
-  const radius = parseFloat(document.getElementById('blurRadius').value) || 0;
-  const lowPct = parseFloat(document.getElementById('lowPct').value);
-  const highPct = parseFloat(document.getElementById('highPct').value);
-  const blackSnap = parseFloat(document.getElementById('blackSnap').value) || 0;
+    function processImage() {
+      if (!img.src) return;
+      const radius = parseFloat(document.getElementById('blurRadius').value) || 0;
+      const lowPct = parseFloat(document.getElementById('lowPct').value);
+      const highPct = parseFloat(document.getElementById('highPct').value);
+      const blackSnap = parseFloat(document.getElementById('blackSnap').value) || 0;
 
-  let imageData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
-  imageData = grayscale(imageData);
-  imageData = gaussianBlur(imageData, radius);
-  imageData = levelStretch(imageData, lowPct, highPct);
-  imageData = snapBlack(imageData, blackSnap);
+      let imageData = srcCtx.getImageData(0, 0, srcCanvas.width, srcCanvas.height);
+      imageData = grayscale(imageData);
+      imageData = gaussianBlur(imageData, radius);
+      imageData = levelStretch(imageData, lowPct, highPct);
+      imageData = snapBlack(imageData, blackSnap);
 
-  outCanvas.width = srcCanvas.width;
-  outCanvas.height = srcCanvas.height;
-  outCtx.putImageData(imageData, 0, 0);
-}
+      outCanvas.width = srcCanvas.width;
+      outCanvas.height = srcCanvas.height;
+      outCtx.putImageData(imageData, 0, 0);
+    }
 
-document.getElementById('processBtn').addEventListener('click', processImage);
+    document.getElementById('processBtn').addEventListener('click', processImage);
 
-document.getElementById('downloadBtn').addEventListener('click', () => {
-  const link = document.createElement('a');
-  link.download = 'cleaned.png';
-  link.href = outCanvas.toDataURL('image/png');
-  link.click();
-});
-</script>
+    document.getElementById('downloadBtn').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.download = 'cleaned.png';
+      link.href = outCanvas.toDataURL('image/png');
+      link.click();
+    });
+  </script>
 
 </body>
+
 </html>

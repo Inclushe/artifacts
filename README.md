@@ -1,6 +1,6 @@
 # `artifacts`
 
-claude artifacts
+claude artifacts and POCs
 
 - dynamic-compressor
   - uses compressor code from [https://github.com/dan-online/youtubeaudiocompressor](https://github.com/dan-online/youtubeaudiocompressor)
@@ -14,3 +14,6 @@ claude artifacts
     - https://x.com/bgvcyt/status/1884265411472154999
     - https://www.youtube.com/watch?v=8m-uNJ2w5Xw
     - https://www.youtube.com/watch?v=IjEJDa-hOTI
+- sayit
+  - Ported from [AnalogX SayIt](https://www.analogx.com/contents/download/Audio/sayit/Freeware.htm)
+    - based off [rsynth](https://github.com/rhdunn/rsynth) and [klatt](https://github.com/rhdunn/klatt)

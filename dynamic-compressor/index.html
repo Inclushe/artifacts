@@ -1,212 +1,219 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
+
 <head>
-<meta charset="utf-8">
-<title>MP3 Dynamics Compressor</title>
-<style>:root { color-scheme: light }</style>
+  <meta charset="utf-8">
+  <title>MP3 Dynamics Compressor</title>
+  <style>
+    :root {
+      color-scheme: light
+    }
+  </style>
 </head>
+
 <body>
-<h3>MP3 Dynamics Compressor</h3>
+  <h3>MP3 Dynamics Compressor</h3>
 
-<p><input type="file" id="file" accept="audio/*"></p>
+  <p><input type="file" id="file" accept="audio/*"></p>
 
-<p><audio id="player" controls></audio></p>
+  <p><audio id="player" controls></audio></p>
 
-<p>
-<button id="toggle" aria-pressed="false">Compression: OFF</button>
-<span id="gr"></span>
-</p>
+  <p>
+    <button id="toggle" aria-pressed="false">Compression: OFF</button>
+    <span id="gr"></span>
+  </p>
 
-<p>
-<button id="export" disabled>Export compressed WAV</button>
-<span id="status"></span>
-</p>
+  <p>
+    <button id="export" disabled>Export compressed WAV</button>
+    <span id="status"></span>
+  </p>
 
-<p>
-threshold <input type="number" id="threshold" value="-50" step="1"> dB<br>
-knee <input type="number" id="knee" value="40" step="1"><br>
-ratio <input type="number" id="ratio" value="12" step="1"><br>
-attack <input type="number" id="attack" value="0" step="0.001"> s<br>
-release <input type="number" id="release" value="0.25" step="0.01"> s
-</p>
+  <p>
+    threshold <input type="number" id="threshold" value="-50" step="1"> dB<br>
+    knee <input type="number" id="knee" value="40" step="1"><br>
+    ratio <input type="number" id="ratio" value="12" step="1"><br>
+    attack <input type="number" id="attack" value="0" step="0.001"> s<br>
+    release <input type="number" id="release" value="0.25" step="0.01"> s
+  </p>
 
-<script>
-// Port of dan-online/youtubeaudiocompressor content-script.ts
-// (compressVideoNode / updateCompression), applied to an <audio> element.
+  <script>
+    // Port of dan-online/youtubeaudiocompressor content-script.ts
+    // (compressVideoNode / updateCompression), applied to an <audio> element.
 
-const player = document.getElementById('player');
-const toggle = document.getElementById('toggle');
-const gr = document.getElementById('gr');
+    const player = document.getElementById('player');
+    const toggle = document.getElementById('toggle');
+    const gr = document.getElementById('gr');
 
-const sources = [];
-let compress = false;
+    const sources = [];
+    let compress = false;
 
-function compressNodeFor(node) {
-  const found = sources.find((x) => x.node === node);
-  if (found) {
-    try {
-      found.source.disconnect(found.context.destination);
-    } catch {
-      // ignore this error
+    function compressNodeFor(node) {
+      const found = sources.find((x) => x.node === node);
+      if (found) {
+        try {
+          found.source.disconnect(found.context.destination);
+        } catch {
+          // ignore this error
+        }
+        found.source.connect(found.compression);
+        return found;
+      }
+
+      const context = new AudioContext();
+
+      const compression = context.createDynamicsCompressor();
+      compression.threshold.setValueAtTime(-50, context.currentTime);
+      compression.knee.setValueAtTime(40, context.currentTime);
+      compression.ratio.setValueAtTime(12, context.currentTime);
+      compression.attack.setValueAtTime(0, context.currentTime);
+      compression.release.setValueAtTime(0.25, context.currentTime);
+
+      const source = context.createMediaElementSource(node);
+
+      source.connect(compression);
+      compression.connect(context.destination);
+
+      const entry = { source, compression, node, context };
+      sources.push(entry);
+      return entry;
     }
-    found.source.connect(found.compression);
-    return found;
-  }
 
-  const context = new AudioContext();
-
-  const compression = context.createDynamicsCompressor();
-  compression.threshold.setValueAtTime(-50, context.currentTime);
-  compression.knee.setValueAtTime(40, context.currentTime);
-  compression.ratio.setValueAtTime(12, context.currentTime);
-  compression.attack.setValueAtTime(0, context.currentTime);
-  compression.release.setValueAtTime(0.25, context.currentTime);
-
-  const source = context.createMediaElementSource(node);
-
-  source.connect(compression);
-  compression.connect(context.destination);
-
-  const entry = { source, compression, node, context };
-  sources.push(entry);
-  return entry;
-}
-
-function updateCompression(on) {
-  if (on) {
-    toggle.setAttribute('aria-pressed', 'true');
-    toggle.textContent = 'Compression: ON';
-    const entry = compressNodeFor(player);
-    entry.context.resume();
-    applyParams();
-  } else {
-    toggle.setAttribute('aria-pressed', 'false');
-    toggle.textContent = 'Compression: OFF';
-    for (const { source, compression, context } of sources) {
-      source.disconnect(compression);
-      source.connect(context.destination);
+    function updateCompression(on) {
+      if (on) {
+        toggle.setAttribute('aria-pressed', 'true');
+        toggle.textContent = 'Compression: ON';
+        const entry = compressNodeFor(player);
+        entry.context.resume();
+        applyParams();
+      } else {
+        toggle.setAttribute('aria-pressed', 'false');
+        toggle.textContent = 'Compression: OFF';
+        for (const { source, compression, context } of sources) {
+          source.disconnect(compression);
+          source.connect(context.destination);
+        }
+      }
     }
-  }
-}
 
-function applyParams() {
-  for (const { compression, context } of sources) {
-    const t = context.currentTime;
-    compression.threshold.setValueAtTime(+threshold.value, t);
-    compression.knee.setValueAtTime(+knee.value, t);
-    compression.ratio.setValueAtTime(+ratio.value, t);
-    compression.attack.setValueAtTime(+attack.value, t);
-    compression.release.setValueAtTime(+release.value, t);
-  }
-}
-
-for (const id of ['threshold', 'knee', 'ratio', 'attack', 'release']) {
-  document.getElementById(id).addEventListener('input', applyParams);
-}
-
-let fileBytes = null;
-let fileName = 'audio';
-
-document.getElementById('file').addEventListener('change', async (e) => {
-  const f = e.target.files[0];
-  if (!f) return;
-  fileName = f.name.replace(/\.[^.]+$/, '');
-  fileBytes = await f.arrayBuffer();
-  exportBtn.disabled = false;
-  player.src = URL.createObjectURL(f);
-  player.play().catch(() => {});
-});
-
-toggle.addEventListener('click', () => {
-  compress = !compress;
-  updateCompression(compress);
-});
-
-// --- offline render + WAV export ---
-
-const exportBtn = document.getElementById('export');
-const status = document.getElementById('status');
-
-function encodeWav(buffer) {
-  const chans = buffer.numberOfChannels;
-  const frames = buffer.length;
-  const rate = buffer.sampleRate;
-  const bytes = 44 + frames * chans * 2;
-  const view = new DataView(new ArrayBuffer(bytes));
-
-  const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
-
-  str(0, 'RIFF');
-  view.setUint32(4, bytes - 8, true);
-  str(8, 'WAVE');
-  str(12, 'fmt ');
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);          // PCM
-  view.setUint16(22, chans, true);
-  view.setUint32(24, rate, true);
-  view.setUint32(28, rate * chans * 2, true);
-  view.setUint16(32, chans * 2, true);
-  view.setUint16(34, 16, true);
-  str(36, 'data');
-  view.setUint32(40, frames * chans * 2, true);
-
-  const data = [];
-  for (let c = 0; c < chans; c++) data.push(buffer.getChannelData(c));
-
-  let off = 44;
-  for (let i = 0; i < frames; i++) {
-    for (let c = 0; c < chans; c++) {
-      const s = Math.max(-1, Math.min(1, data[c][i]));
-      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-      off += 2;
+    function applyParams() {
+      for (const { compression, context } of sources) {
+        const t = context.currentTime;
+        compression.threshold.setValueAtTime(+threshold.value, t);
+        compression.knee.setValueAtTime(+knee.value, t);
+        compression.ratio.setValueAtTime(+ratio.value, t);
+        compression.attack.setValueAtTime(+attack.value, t);
+        compression.release.setValueAtTime(+release.value, t);
+      }
     }
-  }
-  return new Blob([view], { type: 'audio/wav' });
-}
 
-exportBtn.addEventListener('click', async () => {
-  if (!fileBytes) return;
-  exportBtn.disabled = true;
-  status.textContent = ' decoding...';
+    for (const id of ['threshold', 'knee', 'ratio', 'attack', 'release']) {
+      document.getElementById(id).addEventListener('input', applyParams);
+    }
 
-  const tmp = new AudioContext();
-  const decoded = await tmp.decodeAudioData(fileBytes.slice(0));
-  tmp.close();
+    let fileBytes = null;
+    let fileName = 'audio';
 
-  status.textContent = ' rendering...';
+    document.getElementById('file').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      fileName = f.name.replace(/\.[^.]+$/, '');
+      fileBytes = await f.arrayBuffer();
+      exportBtn.disabled = false;
+      player.src = URL.createObjectURL(f);
+      player.play().catch(() => { });
+    });
 
-  const off = new OfflineAudioContext(decoded.numberOfChannels, decoded.length, decoded.sampleRate);
+    toggle.addEventListener('click', () => {
+      compress = !compress;
+      updateCompression(compress);
+    });
 
-  const comp = off.createDynamicsCompressor();
-  comp.threshold.setValueAtTime(+threshold.value, 0);
-  comp.knee.setValueAtTime(+knee.value, 0);
-  comp.ratio.setValueAtTime(+ratio.value, 0);
-  comp.attack.setValueAtTime(+attack.value, 0);
-  comp.release.setValueAtTime(+release.value, 0);
+    // --- offline render + WAV export ---
 
-  const src = off.createBufferSource();
-  src.buffer = decoded;
-  src.connect(comp);
-  comp.connect(off.destination);
-  src.start();
+    const exportBtn = document.getElementById('export');
+    const status = document.getElementById('status');
 
-  const rendered = await off.startRendering();
+    function encodeWav(buffer) {
+      const chans = buffer.numberOfChannels;
+      const frames = buffer.length;
+      const rate = buffer.sampleRate;
+      const bytes = 44 + frames * chans * 2;
+      const view = new DataView(new ArrayBuffer(bytes));
 
-  const url = URL.createObjectURL(encodeWav(rendered));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName + '-compressed.wav';
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+      const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
 
-  status.textContent = ' done';
-  exportBtn.disabled = false;
-});
+      str(0, 'RIFF');
+      view.setUint32(4, bytes - 8, true);
+      str(8, 'WAVE');
+      str(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);          // PCM
+      view.setUint16(22, chans, true);
+      view.setUint32(24, rate, true);
+      view.setUint32(28, rate * chans * 2, true);
+      view.setUint16(32, chans * 2, true);
+      view.setUint16(34, 16, true);
+      str(36, 'data');
+      view.setUint32(40, frames * chans * 2, true);
 
-setInterval(() => {
-  const s = sources[0];
-  gr.textContent = compress && s ? 'gain reduction: ' + s.compression.reduction.toFixed(1) + ' dB' : '';
-}, 100);
-</script>
+      const data = [];
+      for (let c = 0; c < chans; c++) data.push(buffer.getChannelData(c));
+
+      let off = 44;
+      for (let i = 0; i < frames; i++) {
+        for (let c = 0; c < chans; c++) {
+          const s = Math.max(-1, Math.min(1, data[c][i]));
+          view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+          off += 2;
+        }
+      }
+      return new Blob([view], { type: 'audio/wav' });
+    }
+
+    exportBtn.addEventListener('click', async () => {
+      if (!fileBytes) return;
+      exportBtn.disabled = true;
+      status.textContent = ' decoding...';
+
+      const tmp = new AudioContext();
+      const decoded = await tmp.decodeAudioData(fileBytes.slice(0));
+      tmp.close();
+
+      status.textContent = ' rendering...';
+
+      const off = new OfflineAudioContext(decoded.numberOfChannels, decoded.length, decoded.sampleRate);
+
+      const comp = off.createDynamicsCompressor();
+      comp.threshold.setValueAtTime(+threshold.value, 0);
+      comp.knee.setValueAtTime(+knee.value, 0);
+      comp.ratio.setValueAtTime(+ratio.value, 0);
+      comp.attack.setValueAtTime(+attack.value, 0);
+      comp.release.setValueAtTime(+release.value, 0);
+
+      const src = off.createBufferSource();
+      src.buffer = decoded;
+      src.connect(comp);
+      comp.connect(off.destination);
+      src.start();
+
+      const rendered = await off.startRendering();
+
+      const url = URL.createObjectURL(encodeWav(rendered));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName + '-compressed.wav';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+      status.textContent = ' done';
+      exportBtn.disabled = false;
+    });
+
+    setInterval(() => {
+      const s = sources[0];
+      gr.textContent = compress && s ? 'gain reduction: ' + s.compression.reduction.toFixed(1) + ' dB' : '';
+    }, 100);
+  </script>
 </body>
+
 </html>
