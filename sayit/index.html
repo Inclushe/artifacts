@@ -368,11 +368,23 @@
             <input type="range" id="decl" min="0" max="10" step="0.1" title="Hz per second"
               aria-label="Pitch fall in Hz per second">
 
-            <label for="burst">Burst trim</label>
+            <label for="burst">Noise trim</label>
             <input class="val" id="burstv" inputmode="numeric" title="dB"
-              aria-label="Burst trim in dB">
-            <input type="range" id="burst" min="-18" max="0" step="1" title="dB"
-              aria-label="Burst trim in dB">
+              aria-label="Noise trim in dB">
+            <input type="range" id="burst" min="-40" max="0" step="1" title="dB"
+              aria-label="Noise trim in dB">
+
+            <label for="smooth">Smoothing</label>
+            <input class="val" id="smoothv" inputmode="numeric" title="percent"
+              aria-label="Onset smoothing, percent">
+            <input type="range" id="smooth" min="0" max="100" step="1" title="percent"
+              aria-label="Onset smoothing, percent">
+
+            <label for="tilt">Voice tilt</label>
+            <input class="val" id="tiltv" inputmode="numeric" title="dB above the stock value of 1"
+              aria-label="Voice tilt in dB">
+            <input type="range" id="tilt" min="0" max="23" step="1"
+              title="dB above the stock value of 1" aria-label="Voice tilt in dB">
           </div>
         </details>
       </fieldset>
@@ -405,22 +417,31 @@
       /* Stop-release elements: one- to four-frame bursts carrying the plosive cue.
          KY alone has two parallel formants at 50.75 dB, which is what makes /k/
          the peakiest phoneme in the set. Trimmed together by the Burst trim control. */
-      const BURST = ['P','T','K','PY','PZ','TY','TZ','KY','KZ','BY','BZ','DY','DZ','GY','GZ',
-                     'JY','ZZ','CI','DI','X'];
-      /* a1..a6 are the parallel resonator gains; asp and af are the aspiration and frication
-         source levels, which sit at 60 dB on every one of these and are the whole sound of
-         the K/T/P closures. Trimming the gains alone barely touches them. */
-      const BURSTP = [8, 9, 10, 11, 12, 13, 17, 18];
-      const burstIdx = [], burstOrig = [];
+      /* Two groups, each trimmed where its sound is actually produced, so the control is
+         1 dB per dB for both.
+         NOISY: an active noise source - trim ab (bypass), asp (aspiration), af (frication).
+                Trimming a1..a6 as well would compound to 2 dB per 1 dB.
+         VOICED: short voiced releases with no noise at all, so the source trim cannot reach
+                them - trim the parallel gains a1..a6 instead. DI is the one in "this", ZZ the
+                one in "his". Vowels are excluded by the vwl feature bit, not by name. */
+      const NOISY = ['P', 'PY', 'PZ', 'T', 'TY', 'TZ', 'K', 'KY', 'KZ', 'CH', 'CI',
+                     'F', 'TH', 'S', 'SH', 'H', 'DH', 'Z', 'X'];
+      const VOICED = ['BY', 'DY', 'DZ', 'GY', 'GZ', 'V', 'QQ', 'DI', 'ZZ', 'ZH', 'J', 'JY'];
+      const NOISYP = [14, 17, 18];
+      const VOICEDP = [8, 9, 10, 11, 12, 13];
+      const burstIdx = [], burstPar = [], burstOrig = [];
       E.forEach((el, i) => {
-        if (BURST.indexOf(el.name) < 0) return;
-        burstIdx.push(i);
-        burstOrig.push(BURSTP.map(j => [el.p[j][0], el.p[j][1]]));
+        const noisy = NOISY.indexOf(el.name) >= 0;
+        const voiced = VOICED.indexOf(el.name) >= 0 && !(el.feat & 0x10000000); /* vwl */
+        if (!noisy && !voiced) return;
+        const par = noisy ? NOISYP : VOICEDP;
+        burstIdx.push(i); burstPar.push(par);
+        burstOrig.push(par.map(j => [el.p[j][0], el.p[j][1]]));
       });
       function applyBurstTrim(db) {
         burstIdx.forEach((ei, n) => {
           const p = E[ei].p, o = burstOrig[n];
-          BURSTP.forEach((j, q) => {
+          burstPar[n].forEach((j, q) => {
             p[j][0] = (o[q][0] > -30) ? Math.max(-30, o[q][0] + db) : o[q][0];
             p[j][1] = (o[q][1] !== 0) ? o[q][1] + db : o[q][1];
           });
@@ -750,7 +771,7 @@
         amp_voice: 0, amp_bypas: 0, par_amp_voice: 0, amp_aspir: 0, amp_frica: 0, amp_breth: 0,
         natglot_a: 0, natglot_b: 0, vwave: 0, vlast: 0, nlast: 0, glotlast: 0, decay: 0, onemd: 0,
         minus_pi_t: 0, two_pi_t: 0, skew: 0, seed: 5, time_count: 0,
-        kopenK: 0.00833, noiseA: 0.75, tiltK: 0.033, noiseK: 1, bypLP: null,
+        kopenK: 0.00833, noiseA: 0.75, noiseK: 1, bypLP: null, rateExp: 1,
         r: {}
       };
       for (const k of ['rnpp', 'r1p', 'r2p', 'r3p', 'r4p', 'r5p', 'r6p', 'r1c', 'r2c', 'r3c', 'r4c', 'r5c', 'r6c', 'r7c', 'r8c', 'rnpc', 'rnz', 'rgl', 'rlp', 'rout']) S.r[k] = mkres();
@@ -823,7 +844,14 @@
           S.natglot_a = 0.0; S.natglot_b = 0.0;
         }
         if ((S.T0 !== 4) || (ns === 0)) {
-          S.decay = fr(S.tiltK * F.TLTdb);
+          /* Spectral tilt of the glottal source. The filter is y = (1-d)x + d*y, so d IS
+             the pole and preserving its time constant across sample rates means d^(8000/R),
+             not the complement form used for the noise filter. With the complement the
+             corner landed at 35.8 kHz instead of 4.3 kHz and the tilt did nothing above
+             8 kHz. */
+          { const d8 = 0.033 * F.TLTdb;
+            S.decay = fr(S.rateExp === 1 || d8 <= 0 ? d8
+                                                    : Math.pow(Math.min(d8, 0.999999), S.rateExp)); }
           S.onemd = (S.decay > 0.0) ? fr(1.0 - S.decay) : 1.0;
         }
       }
@@ -1088,7 +1116,7 @@
           quiet_flag: 1, f0_flutter: mod, outsl: 0,
           samrate: R, nfcascade: cascade, glsource: 2, nspfr: Math.trunc((R * frameMs) / 1000)
         };
-        const defPars = Object.assign({}, DEF_PARS, { F0hz10: pitch, TLTdb: 1 });
+        const defPars = Object.assign({}, DEF_PARS, { F0hz10: pitch, TLTdb: 1 + (o.tilt || 0) });
         /* rate compensation: keep glottal open phase, noise tilt and spectral tilt
            at the same *time* constants they have at 8 kHz */
         if (comp) {
@@ -1097,8 +1125,8 @@
           S.noiseA = Math.pow(0.75, 8000 / R);
           S.noiseK = Math.sqrt(8000 / R);
           S.bypLP = Array.from({ length: 4 }, () => ({ y: 0, k: 1 - Math.exp(-2 * Math.PI * 4000 / R) }));
-          S.tiltK = 1 - Math.pow(1 - 0.033, 8000 / R);
-        } else { S.kopenK = 0.00833; S.noiseA = 0.75; S.tiltK = 0.033; S.noiseK = 1; S.bypLP = null; }
+          S.rateExp = 8000 / R;
+        } else { S.kopenK = 0.00833; S.noiseA = 0.75; S.noiseK = 1; S.bypLP = null; S.rateExp = 1; }
         S.seed = 5; S.time_count = 0; S.skew = 0;
         S.nper = 0; S.T0 = 0; S.nopen = 0; S.nmod = 0;
         S.natglot_a = 0; S.natglot_b = 0; S.vwave = 0;
@@ -1189,7 +1217,9 @@
 
     // UI
     const DEFAULTS = { pitch: 700, speed: 12, mod: 47, cascade: 0 };
-    const QDEFAULTS = { rate: '8000', frame: '0', decl: 0, burst: -8 };
+    /* Tuned by ear against a phone speaker. Zeroing burst/smooth/tilt (and leaving
+       decl at 0) returns the engine to bit-exact sayit.exe at any sample rate. */
+    const QDEFAULTS = { rate: '8000', frame: '0', decl: 0, burst: -16, smooth: 80, tilt: 12 };
     const CTL = ['pitch', 'speed', 'mod', 'cascade'];
     const $ = id => document.getElementById(id);
     const OUT_RATE = 44100;
@@ -1201,6 +1231,8 @@
       $('rate').value = QDEFAULTS.rate; $('frame').value = QDEFAULTS.frame;
       $('decl').value = QDEFAULTS.decl; $('declv').value = QDEFAULTS.decl;
       $('burst').value = QDEFAULTS.burst; $('burstv').value = QDEFAULTS.burst;
+      $('smooth').value = QDEFAULTS.smooth; $('smoothv').value = QDEFAULTS.smooth;
+      $('tilt').value = QDEFAULTS.tilt; $('tiltv').value = QDEFAULTS.tilt;
       updateCount();
     }
     function opts() {
@@ -1212,7 +1244,12 @@
         frameMs: frame > 0 ? frame : speed,
         /* slider is Hz/s; holmes wants a per-frame drop of `top` in 0.1 Hz units */
         decl: +$('decl').value * (frame > 0 ? frame : speed) / 80,
-        burst: +$('burst').value
+        burst: +$('burst').value,
+        /* holmes' parameter smoother: 1.0 is off. Below ~0.6 short elements start
+           dropping out, so the slider spans 1.0 down to 0.6 only. */
+        frac: 1 - 0.4 * (+$('smooth').value) / 100,
+        /* TLTdb offset above sayit.exe's value of 1; Klatt's own default is 10 */
+        tilt: +$('tilt').value
       };
     }
     function updateCount() { $('count').textContent = $('text').value.length; }
@@ -1224,8 +1261,22 @@
     $('burstv').addEventListener('change', () => {
       let v = parseInt($('burstv').value, 10);
       if (!Number.isFinite(v)) v = 0;
-      v = Math.max(-18, Math.min(0, v));
+      v = Math.max(-40, Math.min(0, v));
       $('burst').value = v; $('burstv').value = v;
+    });
+    $('smooth').addEventListener('input', () => { $('smoothv').value = $('smooth').value; });
+    $('tilt').addEventListener('input', () => { $('tiltv').value = $('tilt').value; });
+    $('tiltv').addEventListener('change', () => {
+      let v = parseInt($('tiltv').value, 10);
+      if (!Number.isFinite(v)) v = 0;
+      v = Math.max(0, Math.min(23, v));
+      $('tilt').value = v; $('tiltv').value = v;
+    });
+    $('smoothv').addEventListener('change', () => {
+      let v = parseInt($('smoothv').value, 10);
+      if (!Number.isFinite(v)) v = 0;
+      v = Math.max(0, Math.min(100, v));
+      $('smooth').value = v; $('smoothv').value = v;
     });
     $('declv').addEventListener('change', () => {
       let v = parseFloat($('declv').value);
