@@ -233,8 +233,24 @@
       flex-shrink: 0;
     }
 
+    .quality+.advanced {
+      margin-top: 11px;
+    }
+
     .quality+.sliders {
       margin-top: 11px;
+    }
+
+    .advanced>summary {
+      font-size: 12px;
+      color: var(--dim);
+      cursor: pointer;
+      user-select: none;
+      width: fit-content;
+    }
+
+    .advanced[open]>summary {
+      margin-bottom: 11px;
     }
 
     select {
@@ -334,20 +350,31 @@
             <option value="22050">22.05 kHz</option>
             <option value="44100">44.1 kHz</option>
           </select>
-          <label for="frame">Parameter update</label>
-          <select id="frame">
-            <option value="0">Tied to Speed</option>
-            <option value="10">10 ms</option>
-            <option value="5">5 ms</option>
-          </select>
         </div>
-        <div class="sliders">
-          <label for="decl">Pitch fall</label>
-          <input class="val" id="declv" inputmode="decimal" title="Hz per second"
-            aria-label="Pitch fall in Hz per second">
-          <input type="range" id="decl" min="0" max="10" step="0.1" title="Hz per second"
-            aria-label="Pitch fall in Hz per second">
-        </div>
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <div class="quality">
+            <label for="frame">Parameter update</label>
+            <select id="frame">
+              <option value="0">Tied to Speed</option>
+              <option value="10">10 ms</option>
+              <option value="5">5 ms</option>
+            </select>
+          </div>
+          <div class="sliders">
+            <label for="decl">Pitch fall</label>
+            <input class="val" id="declv" inputmode="decimal" title="Hz per second"
+              aria-label="Pitch fall in Hz per second">
+            <input type="range" id="decl" min="0" max="10" step="0.1" title="Hz per second"
+              aria-label="Pitch fall in Hz per second">
+
+            <label for="burst">Burst trim</label>
+            <input class="val" id="burstv" inputmode="numeric" title="dB"
+              aria-label="Burst trim in dB">
+            <input type="range" id="burst" min="-18" max="0" step="1" title="dB"
+              aria-label="Burst trim in dB">
+          </div>
+        </details>
       </fieldset>
 
       <div class="row">
@@ -375,6 +402,30 @@
     function createSayIt(TAB, ASCII) {
       const fr = Math.fround;
       const E = TAB.Elements, RULES = TAB.rules;
+      /* Stop-release elements: one- to four-frame bursts carrying the plosive cue.
+         KY alone has two parallel formants at 50.75 dB, which is what makes /k/
+         the peakiest phoneme in the set. Trimmed together by the Burst trim control. */
+      const BURST = ['P','T','K','PY','PZ','TY','TZ','KY','KZ','BY','BZ','DY','DZ','GY','GZ',
+                     'JY','ZZ','CI','DI','X'];
+      /* a1..a6 are the parallel resonator gains; asp and af are the aspiration and frication
+         source levels, which sit at 60 dB on every one of these and are the whole sound of
+         the K/T/P closures. Trimming the gains alone barely touches them. */
+      const BURSTP = [8, 9, 10, 11, 12, 13, 17, 18];
+      const burstIdx = [], burstOrig = [];
+      E.forEach((el, i) => {
+        if (BURST.indexOf(el.name) < 0) return;
+        burstIdx.push(i);
+        burstOrig.push(BURSTP.map(j => [el.p[j][0], el.p[j][1]]));
+      });
+      function applyBurstTrim(db) {
+        burstIdx.forEach((ei, n) => {
+          const p = E[ei].p, o = burstOrig[n];
+          BURSTP.forEach((j, q) => {
+            p[j][0] = (o[q][0] > -30) ? Math.max(-30, o[q][0] + db) : o[q][0];
+            p[j][1] = (o[q][1] !== 0) ? o[q][1] + db : o[q][1];
+          });
+        });
+      }
       const nEparm = 19;
       const FN = 0, F1 = 1, F2 = 2, F3 = 3, B1 = 4, B2 = 5, B3 = 6, AN = 7, A1 = 8, A2 = 9, A3 = 10, A4 = 11, A5 = 12, A6 = 13, AB = 14, AV = 15, AVC = 16, ASP = 17, AF = 18;
       const vwl = 0x10000000;
@@ -1027,6 +1078,7 @@
            glsource = NATURAL(2), quiet_flag = 1 */
         const R = o.samrate || 8000;
         FRAC = (o.frac === undefined) ? 1.0 : o.frac;
+        applyBurstTrim(o.burst || 0);
         DECL = (o.decl === undefined) ? 0 : o.decl;
         const frameMs = o.frameMs || speed;
         DURSCALE = speed / frameMs;
@@ -1137,7 +1189,7 @@
 
     // UI
     const DEFAULTS = { pitch: 700, speed: 12, mod: 47, cascade: 0 };
-    const QDEFAULTS = { rate: '8000', frame: '0', decl: 0 };
+    const QDEFAULTS = { rate: '8000', frame: '0', decl: 0, burst: -8 };
     const CTL = ['pitch', 'speed', 'mod', 'cascade'];
     const $ = id => document.getElementById(id);
     const OUT_RATE = 44100;
@@ -1148,6 +1200,7 @@
       for (const k of CTL) { $(k).value = DEFAULTS[k]; $(k + 'v').value = DEFAULTS[k]; }
       $('rate').value = QDEFAULTS.rate; $('frame').value = QDEFAULTS.frame;
       $('decl').value = QDEFAULTS.decl; $('declv').value = QDEFAULTS.decl;
+      $('burst').value = QDEFAULTS.burst; $('burstv').value = QDEFAULTS.burst;
       updateCount();
     }
     function opts() {
@@ -1158,7 +1211,8 @@
         cascade: +$('cascade').value, samrate: +$('rate').value,
         frameMs: frame > 0 ? frame : speed,
         /* slider is Hz/s; holmes wants a per-frame drop of `top` in 0.1 Hz units */
-        decl: +$('decl').value * (frame > 0 ? frame : speed) / 80
+        decl: +$('decl').value * (frame > 0 ? frame : speed) / 80,
+        burst: +$('burst').value
       };
     }
     function updateCount() { $('count').textContent = $('text').value.length; }
@@ -1166,6 +1220,13 @@
 
     for (const k of ['rate', 'frame']) $(k).addEventListener('change', () => setStatus('Ready.'));
     $('decl').addEventListener('input', () => { $('declv').value = $('decl').value; });
+    $('burst').addEventListener('input', () => { $('burstv').value = $('burst').value; });
+    $('burstv').addEventListener('change', () => {
+      let v = parseInt($('burstv').value, 10);
+      if (!Number.isFinite(v)) v = 0;
+      v = Math.max(-18, Math.min(0, v));
+      $('burst').value = v; $('burstv').value = v;
+    });
     $('declv').addEventListener('change', () => {
       let v = parseFloat($('declv').value);
       if (!Number.isFinite(v)) v = 0;
