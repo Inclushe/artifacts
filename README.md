@@ -17,3 +17,5 @@ claude artifacts and POCs
 - sayit
   - Ported from [AnalogX SayIt](https://www.analogx.com/contents/download/Audio/sayit/Freeware.htm)
     - based off [rsynth](https://github.com/rhdunn/rsynth) and [klatt](https://github.com/rhdunn/klatt)
+- bokeh
+  - based off [Cinematic DOF by Otis_Inf](https://github.com/FransBouma/OtisFX/blob/master/Shaders/CinematicDOF.fx)

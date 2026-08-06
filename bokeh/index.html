@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>BokehPyramid</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: #0a0a0c; overflow: hidden;
+    font: 13px/1.4 ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+    color: #e8e8ea; overscroll-behavior: none;
+  }
+  #view {
+    position: fixed; inset: 0; display: flex;
+    align-items: center; justify-content: center;
+  }
+  canvas { display: block; touch-action: none; }
+
+  #ui {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background: linear-gradient(to top, rgba(8,8,10,.94), rgba(8,8,10,.72) 62%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .row:last-child { margin-bottom: 0; }
+  label { flex: 0 0 78px; font-size: 11px; letter-spacing: .04em;
+          text-transform: uppercase; color: #8d8d96; }
+  .val { flex: 0 0 46px; text-align: right; font-variant-numeric: tabular-nums;
+         font-size: 12px; color: #b9b9c2; }
+  input[type=range] {
+    flex: 1; -webkit-appearance: none; appearance: none; height: 26px;
+    background: transparent; margin: 0;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 3px; border-radius: 2px; background: #2e2e35;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%;
+    background: #f0f0f4; margin-top: -9.5px; box-shadow: 0 1px 6px rgba(0,0,0,.5);
+  }
+  input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: #2e2e35; }
+  input[type=range]::-moz-range-thumb {
+    width: 22px; height: 22px; border: 0; border-radius: 50%; background: #f0f0f4;
+  }
+
+  #hud {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: calc(10px + env(safe-area-inset-top)) 16px 10px;
+    display: flex; align-items: center; gap: 6px;
+    font-variant-numeric: tabular-nums; font-size: 11px; color: #7e7e88;
+    background: linear-gradient(to bottom, rgba(8,8,10,.8), transparent);
+    pointer-events: none;
+  }
+  #fps { color: #6ee7a8; font-weight: 600; }
+  #hud .sp { flex: 1; }
+  #pick {
+    pointer-events: auto; font: inherit; font-size: 11px; color: #b9b9c2;
+    background: #1c1c22; border: 1px solid #33333c; border-radius: 999px;
+    padding: 5px 12px; cursor: pointer;
+  }
+  #pick:active { background: #26262e; }
+  #file { display: none; }
+
+  #play {
+    flex: 0 0 34px; width: 34px; height: 34px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #0b0b0e; background: #f0f0f4; border: 0; border-radius: 50%;
+    cursor: pointer; transition: transform .12s ease, background .12s ease;
+  }
+  #play:active { transform: scale(.92); }
+  #play:disabled { background: #33333c; color: #6a6a74; cursor: default; }
+
+  #bar {
+    position: fixed; top: 0; left: 0; height: 2px; width: 0%;
+    background: #6ee7a8; transition: width .12s linear, opacity .3s .2s;
+  }
+  #detail {
+    position: fixed; left: 16px; bottom: 132px; font-size: 10.5px; line-height: 1.6;
+    color: #62626c; font-variant-numeric: tabular-nums; pointer-events: none;
+    white-space: pre;
+  }
+</style>
+</head>
+<body>
+
+<div id="view"></div>
+<div id="bar"></div>
+
+<div id="hud">
+  <span id="fps">--</span><span>fps</span>
+  <span class="sp"></span>
+  <button id="pick">Load image</button>
+  <input type="file" id="file" accept="image/*">
+</div>
+
+<div id="detail"></div>
+
+<div id="ui">
+  <div class="row">
+    <button id="play" title="Pull focus">
+      <svg id="playIcon" viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+        <path d="M8 5v14l11-7z" fill="currentColor"/>
+      </svg>
+    </button>
+    <label for="strength" style="flex:0 0 62px">Strength</label>
+    <input type="range" id="strength" min="0" max="128" step="0.5" value="64">
+    <span class="val" id="strengthV">64</span>
+  </div>
+  <div class="row">
+    <label for="busy">Busy</label>
+    <input type="range" id="busy" min="0" max="1" step="0.01" value="0.75">
+    <span class="val" id="busyV">0.75</span>
+  </div>
+  <div class="row">
+    <label for="boost">Highlight</label>
+    <input type="range" id="boost" min="0" max="1" step="0.01" value="0.9">
+    <span class="val" id="boostV">0.90</span>
+  </div>
+</div>
+
+<script type="module">
+import { BokehPyramid } from './BokehPyramid.js';
+
+const $ = (id) => document.getElementById(id);
+
+/* ------------------------------------------------------------------ */
+/* renderer -- no dependencies, BokehPyramid owns the GL context        */
+/* ------------------------------------------------------------------ */
+
+const canvas = document.createElement('canvas');
+document.getElementById('view').appendChild(canvas);
+
+const bokeh = new BokehPyramid(canvas, {
+  minRadius: 6,
+  maxRadius: 128,
+  spacing: 1.3,
+  workingRadius: 7,
+  maxBaseSize: 1280,
+  busyFactor: 0.75,
+  highlightBoost: 0.9,
+});
+
+let sourceAspect = 1;
+
+/* ------------------------------------------------------------------ */
+/* a test image with plenty of clipped highlights                      */
+/* ------------------------------------------------------------------ */
+
+function makeTestImage(w = 1280, h = 1280) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+
+  const bg = x.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#0d1220');
+  bg.addColorStop(0.55, '#161022');
+  bg.addColorStop(1, '#050508');
+  x.fillStyle = bg;
+  x.fillRect(0, 0, w, h);
+
+  // broad soft washes, so the image isn't only point lights
+  const washes = [['#3a1f5e', 0.30], ['#12384f', 0.26], ['#5e2a1f', 0.20]];
+  for (let i = 0; i < washes.length; i++) {
+    const cx = w * (0.2 + 0.3 * i);
+    const cy = h * (0.75 - 0.22 * i);
+    const r = w * 0.42;
+    const gr = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+    gr.addColorStop(0, washes[i][0]);
+    gr.addColorStop(1, 'transparent');
+    x.globalAlpha = washes[i][1];
+    x.fillStyle = gr;
+    x.fillRect(0, 0, w, h);
+  }
+  x.globalAlpha = 1;
+
+  // clipped point highlights -- these are what become bokeh balls
+  const tints = ['#ffffff', '#fff4d6', '#d8ecff', '#ffd9e8', '#e6ffe4', '#fff0b8'];
+  x.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 220; i++) {
+    const px = Math.random() * w;
+    const py = Math.random() * h;
+    const core = 0.8 + Math.pow(Math.random(), 2.6) * 5.5;
+    const r = core * 4.5;
+    const tint = tints[(Math.random() * tints.length) | 0];
+    const gl = x.createRadialGradient(px, py, 0, px, py, r);
+    gl.addColorStop(0, tint);
+    gl.addColorStop(0.18, tint);
+    gl.addColorStop(1, 'transparent');
+    x.fillStyle = gl;
+    x.fillRect(px - r, py - r, r * 2, r * 2);
+  }
+
+  // hard bright bars, to check edge behaviour at large radii
+  x.fillStyle = '#ffffff';
+  x.fillRect(w * 0.08, h * 0.44, w * 0.30, 3);
+  x.fillRect(w * 0.62, h * 0.20, 3, h * 0.26);
+  x.globalCompositeOperation = 'source-over';
+
+  return c;
+}
+
+function useSource(source) {
+  bokeh.setSource(source);
+  sourceAspect = bokeh.aspect;
+  layout();
+  updateDetail();
+}
+
+/* ------------------------------------------------------------------ */
+/* layout                                                              */
+/* ------------------------------------------------------------------ */
+
+function layout() {
+  const s = Math.min(window.innerWidth / sourceAspect, window.innerHeight);
+  bokeh.setSize(Math.round(s * sourceAspect), Math.round(s));
+}
+
+window.addEventListener('resize', layout);
+
+/* ------------------------------------------------------------------ */
+/* controls                                                            */
+/* ------------------------------------------------------------------ */
+
+const bar = $('bar');
+const detail = $('detail');
+
+const strength = $('strength');
+const strengthV = $('strengthV');
+
+function applyStrength(v) {
+  bokeh.setStrength(v);
+  strength.value = v;
+  strengthV.textContent = v < 10 ? v.toFixed(1) : Math.round(v);
+}
+
+strength.addEventListener('input', () => {
+  anim = null;
+  syncPlayIcon();
+  applyStrength(parseFloat(strength.value));
+});
+
+/* --- focus pull -------------------------------------------------------
+   Perceived defocus is roughly geometric: 64 -> 32 reads as about the same
+   amount of change as 32 -> 16. A linear ramp therefore crawls through the
+   top half and snaps through the part you actually watch, so the radius is
+   interpolated in log space down to a floor and then faded out over the last
+   stretch. Easing is applied to that parameter, not to the radius. */
+
+const R_FLOOR = 0.8;
+const TAIL = 0.16;
+let anim = null;
+let lastFocused = 64;
+
+const easeInOut = (u) => (u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2);
+
+function racked(from, to, e) {
+  // rack out (to > from): mirror the curve so it decelerates into focus too
+  if (to > from) return racked(to, from, 1 - e);
+  if (from <= R_FLOOR) return from + (to - from) * e;
+  const hi = Math.log(from);
+  const lo = Math.log(Math.max(to, R_FLOOR));
+  const r = Math.exp(hi + (lo - hi) * e);
+  if (to > 0) return r;
+  const tail = Math.max(0, (e - (1 - TAIL)) / TAIL);
+  return r * (1 - tail);
+}
+
+function syncPlayIcon() {
+  const focused = bokeh.strength <= 0.01;
+  $('playIcon').innerHTML = focused
+    ? '<path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z" fill="currentColor"/>'
+    : '<path d="M8 5v14l11-7z" fill="currentColor"/>';
+}
+
+$('play').addEventListener('click', () => {
+  const from = bokeh.strength;
+  const to = from > 0.01 ? 0 : (lastFocused || 64);
+  if (from > 0.01) lastFocused = from;
+  anim = { from, to, t0: performance.now(), dur: 1500 };
+});
+
+function stepAnim(now) {
+  if (!anim) return;
+  const u = Math.min(1, (now - anim.t0) / anim.dur);
+  applyStrength(racked(anim.from, anim.to, easeInOut(u)));
+  if (u >= 1) { applyStrength(anim.to); anim = null; syncPlayIcon(); }
+}
+
+// Busy and highlight change how the levels are baked, so they trigger a
+// rebuild. You can watch it re-converge over ~13 frames without the UI
+// dropping below 60.
+let rebuildTimer = null;
+function scheduleRebuild() {
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => bokeh.rebuild(), 90);
+}
+
+const busy = $('busy');
+const busyV = $('busyV');
+busy.addEventListener('input', () => {
+  busyV.textContent = parseFloat(busy.value).toFixed(2);
+  bokeh.options.busyFactor = parseFloat(busy.value);
+  scheduleRebuild();
+});
+
+const boost = $('boost');
+const boostV = $('boostV');
+boost.addEventListener('input', () => {
+  boostV.textContent = parseFloat(boost.value).toFixed(2);
+  bokeh.options.highlightBoost = parseFloat(boost.value);
+  scheduleRebuild();
+});
+
+$('pick').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  const img = new Image();
+  const url = URL.createObjectURL(f);
+  img.onload = () => { useSource(img); URL.revokeObjectURL(url); };
+  img.src = url;
+});
+
+function updateDetail() {
+  const s = bokeh.stats();
+  detail.textContent =
+    `${s.base[0]}x${s.base[1]}  ·  ${s.levelCount} levels\n` +
+    `${s.levelMB} MB levels + ${s.chainMB} MB chain\n` +
+    `${s.buildSamplesM}M samples to build`;
+}
+
+/* ------------------------------------------------------------------ */
+/* go                                                                  */
+/* ------------------------------------------------------------------ */
+
+useSource(makeTestImage());
+applyStrength(parseFloat(strength.value));
+syncPlayIcon();
+
+let frames = 0;
+let last = performance.now();
+const fpsEl = $('fps');
+
+function tick(now) {
+  requestAnimationFrame(tick);
+
+  // one build step per frame -- heavy levels are split into strips, so no
+  // single frame stalls and the slider stays live throughout
+  const building = bokeh.update();
+  bar.style.width = (bokeh.progress * 100) + '%';
+  bar.style.opacity = building ? '1' : '0';
+  $('play').disabled = building;
+
+  stepAnim(now || performance.now());
+  bokeh.render();
+
+  frames++;
+  const t = performance.now();
+  if (t - last >= 500) {
+    fpsEl.textContent = Math.round((frames * 1000) / (t - last));
+    frames = 0;
+    last = t;
+  }
+}
+tick();
+</script>
+</body>
+</html>
