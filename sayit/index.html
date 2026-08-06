@@ -233,6 +233,10 @@
       flex-shrink: 0;
     }
 
+    .quality+.sliders {
+      margin-top: 11px;
+    }
+
     select {
       font: inherit;
       font-size: 13.5px;
@@ -330,12 +334,19 @@
             <option value="22050">22.05 kHz</option>
             <option value="44100">44.1 kHz</option>
           </select>
-          <label for="frame">Frame rate</label>
+          <label for="frame">Parameter update</label>
           <select id="frame">
             <option value="0">Tied to Speed</option>
             <option value="10">10 ms</option>
             <option value="5">5 ms</option>
           </select>
+        </div>
+        <div class="sliders">
+          <label for="decl">Pitch fall</label>
+          <input class="val" id="declv" inputmode="decimal" title="Hz per second"
+            aria-label="Pitch fall in Hz per second">
+          <input type="range" id="decl" min="0" max="10" step="0.1" title="Hz per second"
+            aria-label="Pitch fall in Hz per second">
         </div>
       </fieldset>
 
@@ -367,7 +378,7 @@
       const nEparm = 19;
       const FN = 0, F1 = 1, F2 = 2, F3 = 3, B1 = 4, B2 = 5, B3 = 6, AN = 7, A1 = 8, A2 = 9, A3 = 10, A4 = 11, A5 = 12, A6 = 13, AB = 14, AV = 15, AVC = 16, ASP = 17, AF = 18;
       const vwl = 0x10000000;
-      let DURSCALE = 1, FRAC = 1.0;
+      let DURSCALE = 1, FRAC = 1.0, DECL = 0;
 
       // trie for phoneme -> elements
       const root = { next: new Map(), value: null };
@@ -688,7 +699,7 @@
         amp_voice: 0, amp_bypas: 0, par_amp_voice: 0, amp_aspir: 0, amp_frica: 0, amp_breth: 0,
         natglot_a: 0, natglot_b: 0, vwave: 0, vlast: 0, nlast: 0, glotlast: 0, decay: 0, onemd: 0,
         minus_pi_t: 0, two_pi_t: 0, skew: 0, seed: 5, time_count: 0,
-        kopenK: 0.00833, noiseA: 0.75, tiltK: 0.033,
+        kopenK: 0.00833, noiseA: 0.75, tiltK: 0.033, noiseK: 1, bypLP: null,
         r: {}
       };
       for (const k of ['rnpp', 'r1p', 'r2p', 'r3p', 'r4p', 'r5p', 'r6p', 'r1c', 'r2c', 'r3c', 'r4c', 'r5c', 'r6c', 'r7c', 'r8c', 'rnpc', 'rnz', 'rgl', 'rlp', 'rout']) S.r[k] = mkres();
@@ -820,6 +831,10 @@
           const nrand = (S.seed | 0) >> 18;
           let noise = fr(nrand + S.noiseA * S.nlast);
           S.nlast = noise;
+          /* the tilt filter above is not gain-normalised: its output PSD at a fixed
+             frequency grows with the sample rate, so scale to hold it constant.
+             Exactly 1 at 8 kHz, leaving the authentic path untouched. */
+          if (S.noiseK !== 1) noise = fr(noise * S.noiseK);
           if (S.nper > S.nmod) noise = fr(noise * 0.5);
           let sourc = fr(S.amp_frica * noise);
           const frics = sourc;
@@ -862,7 +877,13 @@
           out = fr(resonator(S.r.r4p, sourc) - out);
           out = fr(resonator(S.r.r3p, sourc) - out);
           out = fr(resonator(S.r.r2p, sourc) - out);
-          out = fr(fr(S.amp_bypas * sourc) - out);
+          /* The bypass path (AB) sends the noise source to the output unresonated, so
+             above 8 kHz it radiates hiss all the way to Nyquist where the 8 kHz build had
+             none - audibly sharp on the two elements that open it, F and DH. Band-limit it
+             back to the original 4 kHz. null at 8 kHz, so the authentic path is untouched. */
+          let byp = sourc;
+          if (S.bypLP) for (const st of S.bypLP) { st.y = st.y + st.k * (byp - st.y); byp = st.y; }
+          out = fr(fr(S.amp_bypas * byp) - out);
           out = resonator(S.r.rout, out);
           let t = Math.trunc(out);
           if (t < -32767) t = -32767; else if (t > 32767) t = 32767;
@@ -980,7 +1001,7 @@
               pars.A4 = Math.trunc(fr(14 + tp[A4]));
               parwave(G, pars, samp, nsamp);
               nsamp += G.nspfr;
-              top = fr(top - 0.5);
+              top = fr(top - DECL);
             }
           }
           le = ce;
@@ -1006,6 +1027,7 @@
            glsource = NATURAL(2), quiet_flag = 1 */
         const R = o.samrate || 8000;
         FRAC = (o.frac === undefined) ? 1.0 : o.frac;
+        DECL = (o.decl === undefined) ? 0 : o.decl;
         const frameMs = o.frameMs || speed;
         DURSCALE = speed / frameMs;
         const comp = (o.compensate !== false) && R !== 8000;
@@ -1021,8 +1043,10 @@
           defPars.Kopen = Math.max(10, Math.round(30 * R / 8000));
           S.kopenK = 0.00833 * 8000 / R;
           S.noiseA = Math.pow(0.75, 8000 / R);
+          S.noiseK = Math.sqrt(8000 / R);
+          S.bypLP = Array.from({ length: 4 }, () => ({ y: 0, k: 1 - Math.exp(-2 * Math.PI * 4000 / R) }));
           S.tiltK = 1 - Math.pow(1 - 0.033, 8000 / R);
-        } else { S.kopenK = 0.00833; S.noiseA = 0.75; S.tiltK = 0.033; }
+        } else { S.kopenK = 0.00833; S.noiseA = 0.75; S.tiltK = 0.033; S.noiseK = 1; S.bypLP = null; }
         S.seed = 5; S.time_count = 0; S.skew = 0;
         S.nper = 0; S.T0 = 0; S.nopen = 0; S.nmod = 0;
         S.natglot_a = 0; S.natglot_b = 0; S.vwave = 0;
@@ -1113,7 +1137,7 @@
 
     // UI
     const DEFAULTS = { pitch: 700, speed: 12, mod: 47, cascade: 0 };
-    const QDEFAULTS = { rate: '8000', frame: '0' };
+    const QDEFAULTS = { rate: '8000', frame: '0', decl: 0 };
     const CTL = ['pitch', 'speed', 'mod', 'cascade'];
     const $ = id => document.getElementById(id);
     const OUT_RATE = 44100;
@@ -1123,6 +1147,7 @@
     function load() {
       for (const k of CTL) { $(k).value = DEFAULTS[k]; $(k + 'v').value = DEFAULTS[k]; }
       $('rate').value = QDEFAULTS.rate; $('frame').value = QDEFAULTS.frame;
+      $('decl').value = QDEFAULTS.decl; $('declv').value = QDEFAULTS.decl;
       updateCount();
     }
     function opts() {
@@ -1131,13 +1156,22 @@
       return {
         pitch: +$('pitch').value, speed: speed, mod: +$('mod').value,
         cascade: +$('cascade').value, samrate: +$('rate').value,
-        frameMs: frame > 0 ? frame : speed
+        frameMs: frame > 0 ? frame : speed,
+        /* slider is Hz/s; holmes wants a per-frame drop of `top` in 0.1 Hz units */
+        decl: +$('decl').value * (frame > 0 ? frame : speed) / 80
       };
     }
     function updateCount() { $('count').textContent = $('text').value.length; }
     function setStatus(s) { console.info(s); }
 
     for (const k of ['rate', 'frame']) $(k).addEventListener('change', () => setStatus('Ready.'));
+    $('decl').addEventListener('input', () => { $('declv').value = $('decl').value; });
+    $('declv').addEventListener('change', () => {
+      let v = parseFloat($('declv').value);
+      if (!Number.isFinite(v)) v = 0;
+      v = Math.max(0, Math.min(10, Math.round(v * 10) / 10));
+      $('decl').value = v; $('declv').value = v;
+    });
     for (const k of CTL) {
       $(k).addEventListener('input', () => { $(k + 'v').value = $(k).value; });
       $(k + 'v').addEventListener('change', () => {
