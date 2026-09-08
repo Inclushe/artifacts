@@ -19,3 +19,4 @@ claude artifacts and POCs
     - based off [rsynth](https://github.com/rhdunn/rsynth) and [klatt](https://github.com/rhdunn/klatt)
 - bokeh
   - based off [Cinematic DOF by Otis_Inf](https://github.com/FransBouma/OtisFX/blob/master/Shaders/CinematicDOF.fx)
+- tone generator
