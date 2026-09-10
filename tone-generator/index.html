@@ -1,219 +1,239 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
-<title>Tone Generator</title>
+  <meta charset="UTF-8">
+  <title>Tone Generator</title>
 </head>
+
 <body style="font-family: sans-serif; max-width: 520px; margin: 40px auto; padding: 0 12px;">
 
-<h2 style="text-align:center;">Tone Generator</h2>
+  <h2 style="text-align:center;">Tone Generator</h2>
 
-<div id="tones"></div>
+  <div id="tones"></div>
 
-<div style="text-align:center; margin: 16px 0;">
-  <button id="addToneBtn" style="padding: 8px 16px;">+ Add Tone</button>
-</div>
-
-<hr>
-
-<div style="text-align:center; margin: 20px 0;">
-  <button id="playBtn" style="font-size: 16px; padding: 10px 20px;">Play All</button>
-</div>
-
-<div style="text-align:center; margin: 20px 0;">
-  <label>
-    <input type="checkbox" id="invertToggle">
-    Invert waveform (whole mix)
-  </label>
-</div>
-
-<div style="text-align:center; margin: 20px 0;">
-  <label>
-    <input type="checkbox" id="burstEnabled">
-    Enable Burst Mode
-  </label>
-  <div style="margin-top:8px;">
-    <label>Burst length (s): <input type="number" id="burstOnInput" min="0.05" step="0.05" value="1" style="width:70px;"></label>
-    &nbsp;&nbsp;
-    <label>Break length (s): <input type="number" id="burstOffInput" min="0.05" step="0.05" value="1" style="width:70px;"></label>
+  <div style="text-align:center; margin: 16px 0;">
+    <button id="addToneBtn" style="padding: 8px 16px;">+ Add Tone</button>
   </div>
-</div>
 
-<p id="status" style="text-align:center; color: gray; font-size: 14px;">Stopped</p>
+  <hr>
 
-<hr>
-
-<div style="margin: 20px 0;">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <label>Global Volume Scale: <span id="globalVolLabel">1.00</span>x</label>
-    <label style="font-size:12px;"><input type="checkbox" id="globalVolFine"> Fine (0.01x steps)</label>
+  <div style="text-align:center; margin: 20px 0;">
+    <button id="playBtn" style="font-size: 16px; padding: 10px 20px;">Play All</button>
   </div>
-  <input type="range" id="globalVolume" min="0" max="2" step="0.05" value="1" style="width:70%;">
-  <input type="number" id="globalVolumeNum" min="0" max="2" step="0.05" value="1" style="width:75px;">
-</div>
 
-<hr>
+  <div style="text-align:center; margin: 20px 0;">
+    <label>
+      <input type="checkbox" id="invertToggle">
+      Invert waveform (whole mix)
+    </label>
+  </div>
 
-<h3>Settings JSON</h3>
-<textarea id="jsonBox" rows="12" style="width:100%; box-sizing:border-box; font-family:monospace; font-size:12px;"></textarea>
-<div style="text-align:center; margin-top:8px;">
-  <button id="exportBtn">Copy JSON to Clipboard</button>
-  <button id="importBtn">Paste JSON from Clipboard</button>
-  <button id="applyJsonBtn">Apply JSON from Box</button>
-</div>
-<p id="clipboardStatus" style="text-align:center; font-size:12px; color:gray;"></p>
-<p id="storageStatus" style="text-align:center; font-size:11px; color:gray;"></p>
+  <div style="text-align:center; margin: 20px 0;">
+    <label>
+      <input type="checkbox" id="burstEnabled">
+      Enable Burst Mode
+    </label>
+    <div style="margin-top:8px;">
+      <label>Burst length (s): <input type="number" id="burstOnInput" min="0.05" step="0.05" value="1"
+          style="width:70px;"></label>
+      &nbsp;&nbsp;
+      <label>Break length (s): <input type="number" id="burstOffInput" min="0.05" step="0.05" value="1"
+          style="width:70px;"></label>
+    </div>
+  </div>
 
-<hr>
+  <p id="status" style="text-align:center; color: gray; font-size: 14px;">Stopped</p>
 
-<h3>Share via URL</h3>
-<div style="text-align:center; margin-bottom:8px;">
-  <button id="generateLinkBtn">Save Settings to URL</button>
-  <button id="copyLinkBtn">Copy Link</button>
-</div>
-<input type="text" id="shareUrlBox" readonly style="width:100%; box-sizing:border-box; font-family:monospace; font-size:11px; padding:6px;">
-<p id="urlStatus" style="text-align:center; font-size:12px; color:gray;"></p>
+  <hr>
 
-<script>
-let audioCtx = null;
-let invertGain = null;
-let burstGainNode = null;
-let burstTimeoutId = null;
-let burstActive = false;
-let playing = false;
-let nextId = 1;
+  <div style="margin: 20px 0;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <label>Global Volume Scale: <span id="globalVolLabel">1.00</span>x</label>
+      <label style="font-size:12px;"><input type="checkbox" id="globalVolFine"> Fine (0.01x steps)</label>
+    </div>
+    <input type="range" id="globalVolume" min="0" max="2" step="0.05" value="1" style="width:70%;">
+    <input type="number" id="globalVolumeNum" min="0" max="2" step="0.05" value="1" style="width:75px;">
+  </div>
 
-const appState = {
-  invert: false,
-  globalVolume: 1,
-  globalVolFine: false
-};
+  <hr>
 
-// Each tone: { id, freq, volume, pan, fine, oscillator, gainNode, pannerNode, rowEl }
-const tones = [];
+  <h3>Settings JSON</h3>
+  <textarea id="jsonBox" rows="12"
+    style="width:100%; box-sizing:border-box; font-family:monospace; font-size:12px;"></textarea>
+  <div style="text-align:center; margin-top:8px;">
+    <button id="exportBtn">Copy JSON to Clipboard</button>
+    <button id="importBtn">Paste JSON from Clipboard</button>
+    <button id="applyJsonBtn">Apply JSON from Box</button>
+  </div>
+  <p id="clipboardStatus" style="text-align:center; font-size:12px; color:gray;"></p>
+  <p id="storageStatus" style="text-align:center; font-size:11px; color:gray;"></p>
 
-const tonesContainer = document.getElementById('tones');
-const addToneBtn = document.getElementById('addToneBtn');
-const playBtn = document.getElementById('playBtn');
-const invertToggle = document.getElementById('invertToggle');
-const burstEnabledCheckbox = document.getElementById('burstEnabled');
-const burstOnInput = document.getElementById('burstOnInput');
-const burstOffInput = document.getElementById('burstOffInput');
-const status = document.getElementById('status');
-const globalVolumeSlider = document.getElementById('globalVolume');
-const globalVolumeNum = document.getElementById('globalVolumeNum');
-const globalVolFine = document.getElementById('globalVolFine');
-const globalVolLabel = document.getElementById('globalVolLabel');
-const jsonBox = document.getElementById('jsonBox');
-const exportBtn = document.getElementById('exportBtn');
-const importBtn = document.getElementById('importBtn');
-const applyJsonBtn = document.getElementById('applyJsonBtn');
-const clipboardStatus = document.getElementById('clipboardStatus');
-const storageStatus = document.getElementById('storageStatus');
-const generateLinkBtn = document.getElementById('generateLinkBtn');
-const copyLinkBtn = document.getElementById('copyLinkBtn');
-const shareUrlBox = document.getElementById('shareUrlBox');
-const urlStatus = document.getElementById('urlStatus');
+  <hr>
 
-const STORAGE_KEY = 'toneGeneratorSettings_v1';
+  <h3>Share via URL</h3>
+  <div style="text-align:center; margin-bottom:8px;">
+    <button id="generateLinkBtn">Save Settings to URL</button>
+    <button id="copyLinkBtn">Copy Link</button>
+  </div>
+  <input type="text" id="shareUrlBox" readonly
+    style="width:100%; box-sizing:border-box; font-family:monospace; font-size:11px; padding:6px;">
+  <p id="urlStatus" style="text-align:center; font-size:12px; color:gray;"></p>
 
-function clamp(n, min, max) {
-  n = Number(n);
-  if (isNaN(n)) return min;
-  return Math.min(max, Math.max(min, n));
-}
+  <script>
+    let audioCtx = null;
+    let invertGain = null;
+    let burstGainNode = null;
+    let burstSchedulerIntervalId = null;
+    let burstNextEventTime = 0;
+    let burstPhaseActive = false; // scheduling-side state: are we currently considered "on"
+    let playing = false;
+    let nextId = 1;
 
-function computeGain(tone) {
-  if (tone.mute) return 0;
-  return (tone.volume / 100) * appState.globalVolume;
-}
+    // Burst scheduling is done via Web Audio's own sample-accurate clock, not
+    // setTimeout timing. Background/inactive tabs (esp. Firefox) throttle JS
+    // timers to as little as 1 call/second, which made just-in-time setTimeout
+    // scheduling stretch burst/break lengths unpredictably. Instead we keep a
+    // rolling buffer of already-scheduled AudioParam automation events several
+    // seconds into the future; once scheduled, those fire precisely on the audio
+    // thread regardless of main-thread throttling. A periodic "topping up" tick
+    // just needs to run occasionally (well within typical throttle limits) to
+    // keep that buffer full.
+    const BURST_SCHEDULE_AHEAD_SEC = 2;
+    const BURST_SCHEDULER_PERIOD_MS = 200;
+    const BURST_RAMP_SEC = 0.005; // short ramp to avoid clicks
 
-// ---------- persistence / localStorage ----------
+    const appState = {
+      invert: false,
+      globalVolume: 1,
+      globalVolFine: false
+    };
 
-function isLocalStorageAvailable() {
-  try {
-    const test = '__ls_test__';
-    window.localStorage.setItem(test, test);
-    window.localStorage.removeItem(test);
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-const localStorageAvailable = isLocalStorageAvailable();
-storageStatus.textContent = localStorageAvailable
-  ? 'Auto-save to this browser is enabled.'
-  : 'localStorage not available - settings will not persist between visits.';
+    // Each tone: { id, freq, volume, pan, fine, oscillator, gainNode, pannerNode, rowEl }
+    const tones = [];
 
-function getStateObject() {
-  return {
-    invert: appState.invert,
-    globalVolume: appState.globalVolume,
-    globalVolFine: appState.globalVolFine,
-    burst: {
-      enabled: burstEnabledCheckbox.checked,
-      on: getBurstOnSeconds(),
-      off: getBurstOffSeconds()
-    },
-    tones: tones.map(t => ({
-      freq: t.freq,
-      volume: t.volume,
-      pan: t.pan,
-      fine: !!t.fine,
-      mute: !!t.mute,
-      volFine: !!t.volFine
-    }))
-  };
-}
+    const tonesContainer = document.getElementById('tones');
+    const addToneBtn = document.getElementById('addToneBtn');
+    const playBtn = document.getElementById('playBtn');
+    const invertToggle = document.getElementById('invertToggle');
+    const burstEnabledCheckbox = document.getElementById('burstEnabled');
+    const burstOnInput = document.getElementById('burstOnInput');
+    const burstOffInput = document.getElementById('burstOffInput');
+    const status = document.getElementById('status');
+    const globalVolumeSlider = document.getElementById('globalVolume');
+    const globalVolumeNum = document.getElementById('globalVolumeNum');
+    const globalVolFine = document.getElementById('globalVolFine');
+    const globalVolLabel = document.getElementById('globalVolLabel');
+    const jsonBox = document.getElementById('jsonBox');
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const applyJsonBtn = document.getElementById('applyJsonBtn');
+    const clipboardStatus = document.getElementById('clipboardStatus');
+    const storageStatus = document.getElementById('storageStatus');
+    const generateLinkBtn = document.getElementById('generateLinkBtn');
+    const copyLinkBtn = document.getElementById('copyLinkBtn');
+    const shareUrlBox = document.getElementById('shareUrlBox');
+    const urlStatus = document.getElementById('urlStatus');
 
-function updateJsonBox() {
-  jsonBox.value = JSON.stringify(getStateObject(), null, 2);
-}
+    const STORAGE_KEY = 'toneGeneratorSettings_v1';
 
-function saveState() {
-  if (!localStorageAvailable) return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(getStateObject()));
-  } catch (e) {
-    // ignore write failures (e.g. quota)
-  }
-}
-
-function loadStateFromStorage() {
-  if (!localStorageAvailable) return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
-}
-
-function persist() {
-  updateJsonBox();
-  saveState();
-}
-
-// ---------- tone rows ----------
-
-function renumberTones() {
-  tones.forEach((t, i) => {
-    if (t.rowEl) {
-      const label = t.rowEl.querySelector('.toneLabel');
-      if (label) label.textContent = 'Tone ' + (i + 1);
+    function clamp(n, min, max) {
+      n = Number(n);
+      if (isNaN(n)) return min;
+      return Math.min(max, Math.max(min, n));
     }
-  });
-}
 
-function createToneRow(tone) {
-  const row = document.createElement('div');
-  row.style.border = '1px solid #ccc';
-  row.style.borderRadius = '6px';
-  row.style.padding = '12px';
-  row.style.margin = '10px 0';
+    function computeGain(tone) {
+      if (tone.mute) return 0;
+      return (tone.volume / 100) * appState.globalVolume;
+    }
 
-  row.innerHTML = `
+    // ---------- persistence / localStorage ----------
+
+    function isLocalStorageAvailable() {
+      try {
+        const test = '__ls_test__';
+        window.localStorage.setItem(test, test);
+        window.localStorage.removeItem(test);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    const localStorageAvailable = isLocalStorageAvailable();
+    storageStatus.textContent = localStorageAvailable
+      ? 'Auto-save to this browser is enabled.'
+      : 'localStorage not available - settings will not persist between visits.';
+
+    function getStateObject() {
+      return {
+        invert: appState.invert,
+        globalVolume: appState.globalVolume,
+        globalVolFine: appState.globalVolFine,
+        burst: {
+          enabled: burstEnabledCheckbox.checked,
+          on: getBurstOnSeconds(),
+          off: getBurstOffSeconds()
+        },
+        tones: tones.map(t => ({
+          freq: t.freq,
+          volume: t.volume,
+          pan: t.pan,
+          fine: !!t.fine,
+          mute: !!t.mute,
+          volFine: !!t.volFine
+        }))
+      };
+    }
+
+    function updateJsonBox() {
+      jsonBox.value = JSON.stringify(getStateObject(), null, 2);
+    }
+
+    function saveState() {
+      if (!localStorageAvailable) return;
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(getStateObject()));
+      } catch (e) {
+        // ignore write failures (e.g. quota)
+      }
+    }
+
+    function loadStateFromStorage() {
+      if (!localStorageAvailable) return null;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function persist() {
+      updateJsonBox();
+      saveState();
+    }
+
+    // ---------- tone rows ----------
+
+    function renumberTones() {
+      tones.forEach((t, i) => {
+        if (t.rowEl) {
+          const label = t.rowEl.querySelector('.toneLabel');
+          if (label) label.textContent = 'Tone ' + (i + 1);
+        }
+      });
+    }
+
+    function createToneRow(tone) {
+      const row = document.createElement('div');
+      row.style.border = '1px solid #ccc';
+      row.style.borderRadius = '6px';
+      row.style.padding = '12px';
+      row.style.margin = '10px 0';
+
+      row.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <strong class="toneLabel">Tone</strong>
       <button class="removeBtn">Remove</button>
@@ -246,443 +266,448 @@ function createToneRow(tone) {
     </div>
   `;
 
-  tone.rowEl = row;
+      tone.rowEl = row;
 
-  const freqSlider = row.querySelector('.freqSlider');
-  const freqNum = row.querySelector('.freqNum');
-  const freqLabel = row.querySelector('.freqLabel');
-  const fineToggle = row.querySelector('.fineToggle');
-  const volSlider = row.querySelector('.volSlider');
-  const volNum = row.querySelector('.volNum');
-  const volLabel = row.querySelector('.volLabel');
-  const muteToggle = row.querySelector('.muteToggle');
-  const volFineToggle = row.querySelector('.volFineToggle');
-  const panSlider = row.querySelector('.panSlider');
-  const panLabel = row.querySelector('.panLabel');
-  const removeBtn = row.querySelector('.removeBtn');
+      const freqSlider = row.querySelector('.freqSlider');
+      const freqNum = row.querySelector('.freqNum');
+      const freqLabel = row.querySelector('.freqLabel');
+      const fineToggle = row.querySelector('.fineToggle');
+      const volSlider = row.querySelector('.volSlider');
+      const volNum = row.querySelector('.volNum');
+      const volLabel = row.querySelector('.volLabel');
+      const muteToggle = row.querySelector('.muteToggle');
+      const volFineToggle = row.querySelector('.volFineToggle');
+      const panSlider = row.querySelector('.panSlider');
+      const panLabel = row.querySelector('.panLabel');
+      const removeBtn = row.querySelector('.removeBtn');
 
-  function applyFineStep() {
-    const step = tone.fine ? '0.1' : '1';
-    freqSlider.step = step;
-    freqNum.step = step;
-  }
+      function applyFineStep() {
+        const step = tone.fine ? '0.1' : '1';
+        freqSlider.step = step;
+        freqNum.step = step;
+      }
 
-  function applyVolFineStep() {
-    const step = tone.volFine ? '0.01' : '0.05';
-    volSlider.step = step;
-    volNum.step = step;
-  }
+      function applyVolFineStep() {
+        const step = tone.volFine ? '0.01' : '0.05';
+        volSlider.step = step;
+        volNum.step = step;
+      }
 
-  function syncFreq(value) {
-    tone.freq = clamp(value, 20, 15000);
-    freqSlider.value = tone.freq;
-    freqNum.value = tone.freq;
-    freqLabel.textContent = tone.fine ? tone.freq.toFixed(1) : tone.freq;
-    if (tone.oscillator && audioCtx) {
-      tone.oscillator.frequency.setValueAtTime(tone.freq, audioCtx.currentTime);
+      function syncFreq(value) {
+        tone.freq = clamp(value, 20, 15000);
+        freqSlider.value = tone.freq;
+        freqNum.value = tone.freq;
+        freqLabel.textContent = tone.fine ? tone.freq.toFixed(1) : tone.freq;
+        if (tone.oscillator && audioCtx) {
+          tone.oscillator.frequency.setValueAtTime(tone.freq, audioCtx.currentTime);
+        }
+      }
+
+      function syncVolume(value) {
+        tone.volume = clamp(value, 0, 20);
+        volSlider.value = tone.volume;
+        volNum.value = tone.volume;
+        volLabel.textContent = tone.volume.toFixed(2);
+        if (tone.gainNode && audioCtx) {
+          tone.gainNode.gain.setValueAtTime(computeGain(tone), audioCtx.currentTime);
+        }
+      }
+
+      function syncPan(value) {
+        tone.pan = clamp(value, -100, 100) / 100;
+        panSlider.value = tone.pan * 100;
+        panLabel.textContent = tone.pan.toFixed(2);
+        if (tone.pannerNode && audioCtx) {
+          tone.pannerNode.pan.setValueAtTime(tone.pan, audioCtx.currentTime);
+        }
+      }
+
+      freqSlider.addEventListener('input', () => { syncFreq(freqSlider.value); persist(); });
+      freqNum.addEventListener('input', () => { if (freqNum.value !== '') { syncFreq(freqNum.value); persist(); } });
+
+      fineToggle.addEventListener('change', () => {
+        tone.fine = fineToggle.checked;
+        applyFineStep();
+        syncFreq(tone.freq);
+        persist();
+      });
+
+      volSlider.addEventListener('input', () => { syncVolume(volSlider.value); persist(); });
+      volNum.addEventListener('input', () => { if (volNum.value !== '') { syncVolume(volNum.value); persist(); } });
+
+      volFineToggle.addEventListener('change', () => {
+        tone.volFine = volFineToggle.checked;
+        applyVolFineStep();
+        persist();
+      });
+
+      muteToggle.addEventListener('change', () => {
+        tone.mute = muteToggle.checked;
+        if (tone.gainNode && audioCtx) {
+          tone.gainNode.gain.setValueAtTime(computeGain(tone), audioCtx.currentTime);
+        }
+        persist();
+      });
+
+      panSlider.addEventListener('input', () => { syncPan(panSlider.value); persist(); });
+
+      removeBtn.addEventListener('click', () => {
+        stopToneNode(tone);
+        const idx = tones.indexOf(tone);
+        if (idx !== -1) tones.splice(idx, 1);
+        row.remove();
+        renumberTones();
+        persist();
+      });
+
+      tonesContainer.appendChild(row);
+
+      // initialize displayed values / control state
+      fineToggle.checked = !!tone.fine;
+      applyFineStep();
+      volFineToggle.checked = !!tone.volFine;
+      applyVolFineStep();
+      syncFreq(tone.freq);
+      syncVolume(tone.volume);
+      syncPan(tone.pan * 100);
+      muteToggle.checked = !!tone.mute;
     }
-  }
 
-  function syncVolume(value) {
-    tone.volume = clamp(value, 0, 20);
-    volSlider.value = tone.volume;
-    volNum.value = tone.volume;
-    volLabel.textContent = tone.volume.toFixed(2);
-    if (tone.gainNode && audioCtx) {
-      tone.gainNode.gain.setValueAtTime(computeGain(tone), audioCtx.currentTime);
+    function addTone(initial) {
+      const tone = {
+        id: nextId++,
+        freq: initial && initial.freq !== undefined ? clamp(initial.freq, 20, 15000) : 440,
+        volume: initial && initial.volume !== undefined ? clamp(initial.volume, 0, 20) : 10,
+        pan: initial && initial.pan !== undefined ? clamp(initial.pan * 100, -100, 100) / 100 : 0,
+        fine: initial && initial.fine !== undefined ? !!initial.fine : false,
+        mute: initial && initial.mute !== undefined ? !!initial.mute : false,
+        volFine: initial && initial.volFine !== undefined ? !!initial.volFine : false
+      };
+      tones.push(tone);
+      createToneRow(tone);
+      renumberTones();
+      if (playing) startToneNode(tone);
+      return tone;
     }
-  }
 
-  function syncPan(value) {
-    tone.pan = clamp(value, -100, 100) / 100;
-    panSlider.value = tone.pan * 100;
-    panLabel.textContent = tone.pan.toFixed(2);
-    if (tone.pannerNode && audioCtx) {
-      tone.pannerNode.pan.setValueAtTime(tone.pan, audioCtx.currentTime);
+    // ---------- audio wiring ----------
+
+    function startToneNode(tone) {
+      const oscillator = audioCtx.createOscillator();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(tone.freq, audioCtx.currentTime);
+
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = computeGain(tone);
+
+      const pannerNode = audioCtx.createStereoPanner();
+      pannerNode.pan.value = tone.pan;
+
+      oscillator.connect(gainNode);
+      gainNode.connect(pannerNode);
+      pannerNode.connect(burstGainNode);
+
+      oscillator.start();
+
+      tone.oscillator = oscillator;
+      tone.gainNode = gainNode;
+      tone.pannerNode = pannerNode;
     }
-  }
 
-  freqSlider.addEventListener('input', () => { syncFreq(freqSlider.value); persist(); });
-  freqNum.addEventListener('input', () => { if (freqNum.value !== '') { syncFreq(freqNum.value); persist(); } });
+    function stopToneNode(tone) {
+      if (tone.oscillator) {
+        try { tone.oscillator.stop(); } catch (e) { }
+        tone.oscillator.disconnect();
+      }
+      if (tone.gainNode) tone.gainNode.disconnect();
+      if (tone.pannerNode) tone.pannerNode.disconnect();
+      tone.oscillator = null;
+      tone.gainNode = null;
+      tone.pannerNode = null;
+    }
 
-  fineToggle.addEventListener('change', () => {
-    tone.fine = fineToggle.checked;
-    applyFineStep();
-    syncFreq(tone.freq);
-    persist();
-  });
+    function getBurstOnSeconds() {
+      return clamp(burstOnInput.value, 0.05, 3600);
+    }
 
-  volSlider.addEventListener('input', () => { syncVolume(volSlider.value); persist(); });
-  volNum.addEventListener('input', () => { if (volNum.value !== '') { syncVolume(volNum.value); persist(); } });
+    function getBurstOffSeconds() {
+      return clamp(burstOffInput.value, 0.05, 3600);
+    }
 
-  volFineToggle.addEventListener('change', () => {
-    tone.volFine = volFineToggle.checked;
-    applyVolFineStep();
-    persist();
-  });
+    function burstSchedulerTick() {
+      if (!playing || !burstGainNode || !audioCtx) return;
 
-  muteToggle.addEventListener('change', () => {
-    tone.mute = muteToggle.checked;
-    if (tone.gainNode && audioCtx) {
-      tone.gainNode.gain.setValueAtTime(computeGain(tone), audioCtx.currentTime);
+      if (!burstEnabledCheckbox.checked) {
+        // Not in burst mode: make sure nothing pending is left over and hold at full.
+        burstGainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+        burstGainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+        return;
+      }
+
+      const scheduleUntil = audioCtx.currentTime + BURST_SCHEDULE_AHEAD_SEC;
+      while (burstNextEventTime < scheduleUntil) {
+        const enteringOn = !burstPhaseActive;
+        const target = enteringOn ? 1 : 0;
+        burstGainNode.gain.linearRampToValueAtTime(target, burstNextEventTime + BURST_RAMP_SEC);
+        burstPhaseActive = enteringOn;
+        const enteredPhaseDuration = enteringOn ? getBurstOnSeconds() : getBurstOffSeconds();
+        burstNextEventTime += enteredPhaseDuration;
+      }
+    }
+
+    function initBurstSchedule() {
+      if (!audioCtx || !burstGainNode) return;
+      burstGainNode.gain.cancelScheduledValues(audioCtx.currentTime);
+      if (!burstEnabledCheckbox.checked) {
+        burstGainNode.gain.setValueAtTime(1, audioCtx.currentTime);
+        return;
+      }
+      burstGainNode.gain.setValueAtTime(1, audioCtx.currentTime); // always start a fresh cycle "on"
+      burstPhaseActive = true;
+      burstNextEventTime = audioCtx.currentTime + getBurstOnSeconds();
+      burstSchedulerTick(); // immediately top up the lookahead buffer
+    }
+
+    function restartBurstCycle() {
+      if (!playing) return;
+      initBurstSchedule();
+    }
+
+    function startAll() {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      // invertGain flips polarity (gain = -1) on the combined mix, mimicking
+      // Audacity's "Invert" effect (multiplies every sample by -1).
+      invertGain = audioCtx.createGain();
+      invertGain.gain.value = invertToggle.checked ? -1 : 1;
+      invertGain.connect(audioCtx.destination);
+
+      burstGainNode = audioCtx.createGain();
+      burstGainNode.gain.value = 1;
+      burstGainNode.connect(invertGain);
+
+      tones.forEach(startToneNode);
+
+      playing = true;
+      playBtn.textContent = 'Stop All';
+      status.textContent = 'Playing';
+
+      initBurstSchedule();
+      burstSchedulerIntervalId = setInterval(burstSchedulerTick, BURST_SCHEDULER_PERIOD_MS);
+    }
+
+    function stopAll() {
+      clearInterval(burstSchedulerIntervalId);
+      burstSchedulerIntervalId = null;
+      tones.forEach(stopToneNode);
+      if (burstGainNode) burstGainNode.disconnect();
+      burstGainNode = null;
+      if (invertGain) invertGain.disconnect();
+      invertGain = null;
+      if (audioCtx) {
+        audioCtx.close();
+        audioCtx = null;
+      }
+      playing = false;
+      playBtn.textContent = 'Play All';
+      status.textContent = 'Stopped';
+    }
+
+    playBtn.addEventListener('click', () => {
+      if (playing) stopAll(); else startAll();
+    });
+
+    invertToggle.addEventListener('change', () => {
+      appState.invert = invertToggle.checked;
+      if (invertGain && audioCtx) {
+        invertGain.gain.setValueAtTime(appState.invert ? -1 : 1, audioCtx.currentTime);
+      }
+      persist();
+    });
+
+    burstEnabledCheckbox.addEventListener('change', () => {
+      restartBurstCycle();
+      persist();
+    });
+
+    burstOnInput.addEventListener('input', () => {
+      restartBurstCycle();
+      persist();
+    });
+
+    burstOffInput.addEventListener('input', () => {
+      restartBurstCycle();
+      persist();
+    });
+
+    function applyGlobalVolFineStep() {
+      const step = appState.globalVolFine ? '0.01' : '0.05';
+      globalVolumeSlider.step = step;
+      globalVolumeNum.step = step;
+    }
+
+    function syncGlobalVolume(value) {
+      appState.globalVolume = clamp(value, 0, 2);
+      globalVolumeSlider.value = appState.globalVolume;
+      globalVolumeNum.value = appState.globalVolume;
+      globalVolLabel.textContent = appState.globalVolume.toFixed(2);
+      tones.forEach(t => {
+        if (t.gainNode && audioCtx) {
+          t.gainNode.gain.setValueAtTime(computeGain(t), audioCtx.currentTime);
+        }
+      });
+    }
+
+    globalVolumeSlider.addEventListener('input', () => { syncGlobalVolume(globalVolumeSlider.value); persist(); });
+    globalVolumeNum.addEventListener('input', () => { if (globalVolumeNum.value !== '') { syncGlobalVolume(globalVolumeNum.value); persist(); } });
+
+    globalVolFine.addEventListener('change', () => {
+      appState.globalVolFine = globalVolFine.checked;
+      applyGlobalVolFineStep();
+      persist();
+    });
+
+    addToneBtn.addEventListener('click', () => { addTone(); persist(); });
+
+    // ---------- URL save/share ----------
+
+    function encodeStateForUrl(obj) {
+      const json = JSON.stringify(obj);
+      return btoa(unescape(encodeURIComponent(json)));
+    }
+
+    function decodeStateFromUrl(str) {
+      const json = decodeURIComponent(escape(atob(str)));
+      return JSON.parse(json);
+    }
+
+    function buildShareUrl() {
+      const encoded = encodeStateForUrl(getStateObject());
+      return window.location.origin + window.location.pathname + window.location.search + '#settings=' + encoded;
+    }
+
+    function loadStateFromUrl() {
+      const hash = window.location.hash || '';
+      const match = hash.match(/#settings=(.+)$/);
+      if (!match) return null;
+      try {
+        return decodeStateFromUrl(match[1]);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // ---------- JSON import / export ----------
+
+    function applyStateObject(obj) {
+      if (!obj || typeof obj !== 'object') throw new Error('Invalid settings object');
+
+      if (playing) stopAll();
+
+      tonesContainer.innerHTML = '';
+      tones.length = 0;
+
+      appState.invert = !!obj.invert;
+      invertToggle.checked = appState.invert;
+
+      appState.globalVolume = obj.globalVolume !== undefined ? clamp(obj.globalVolume, 0, 2) : 1;
+      appState.globalVolFine = !!obj.globalVolFine;
+      globalVolFine.checked = appState.globalVolFine;
+      applyGlobalVolFineStep();
+      globalVolumeSlider.value = appState.globalVolume;
+      globalVolumeNum.value = appState.globalVolume;
+      globalVolLabel.textContent = appState.globalVolume.toFixed(2);
+
+      const burst = obj.burst || {};
+      burstEnabledCheckbox.checked = !!burst.enabled;
+      burstOnInput.value = burst.on !== undefined ? clamp(burst.on, 0.05, 3600) : 1;
+      burstOffInput.value = burst.off !== undefined ? clamp(burst.off, 0.05, 3600) : 1;
+
+      const incomingTones = Array.isArray(obj.tones) ? obj.tones : [];
+      if (incomingTones.length === 0) {
+        addTone();
+      } else {
+        incomingTones.forEach(t => addTone(t));
+      }
+    }
+
+    function applyJsonFromBox() {
+      try {
+        const parsed = JSON.parse(jsonBox.value);
+        applyStateObject(parsed);
+        persist();
+        clipboardStatus.textContent = 'Settings applied.';
+      } catch (e) {
+        clipboardStatus.textContent = 'Could not apply JSON: ' + e.message;
+      }
+    }
+
+    exportBtn.addEventListener('click', async () => {
+      updateJsonBox();
+      try {
+        await navigator.clipboard.writeText(jsonBox.value);
+        clipboardStatus.textContent = 'Copied settings to clipboard.';
+      } catch (e) {
+        clipboardStatus.textContent = 'Clipboard write blocked - select the text in the box and copy manually.';
+      }
+    });
+
+    importBtn.addEventListener('click', async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        jsonBox.value = text;
+        applyJsonFromBox();
+      } catch (e) {
+        clipboardStatus.textContent = 'Clipboard read blocked - paste into the box manually and click "Apply JSON from Box".';
+      }
+    });
+
+    applyJsonBtn.addEventListener('click', applyJsonFromBox);
+
+    generateLinkBtn.addEventListener('click', () => {
+      const url = buildShareUrl();
+      try {
+        window.history.replaceState(null, '', url);
+      } catch (e) {
+        // ignore if replaceState is unavailable (e.g. sandboxed origin)
+      }
+      shareUrlBox.value = url;
+      urlStatus.textContent = 'Link generated - address bar updated (if permitted).';
+    });
+
+    copyLinkBtn.addEventListener('click', async () => {
+      if (!shareUrlBox.value) {
+        shareUrlBox.value = buildShareUrl();
+      }
+      try {
+        await navigator.clipboard.writeText(shareUrlBox.value);
+        urlStatus.textContent = 'Link copied to clipboard.';
+      } catch (e) {
+        shareUrlBox.select();
+        urlStatus.textContent = 'Clipboard blocked - text selected, copy manually (Ctrl/Cmd+C).';
+      }
+    });
+
+    // ---------- init ----------
+
+    applyGlobalVolFineStep();
+
+    const urlState = loadStateFromUrl();
+    const storedState = loadStateFromStorage();
+    const initialState = urlState || storedState;
+
+    if (initialState) {
+      try {
+        applyStateObject(initialState);
+      } catch (e) {
+        addTone();
+      }
+    } else {
+      addTone();
     }
     persist();
-  });
-
-  panSlider.addEventListener('input', () => { syncPan(panSlider.value); persist(); });
-
-  removeBtn.addEventListener('click', () => {
-    stopToneNode(tone);
-    const idx = tones.indexOf(tone);
-    if (idx !== -1) tones.splice(idx, 1);
-    row.remove();
-    renumberTones();
-    persist();
-  });
-
-  tonesContainer.appendChild(row);
-
-  // initialize displayed values / control state
-  fineToggle.checked = !!tone.fine;
-  applyFineStep();
-  volFineToggle.checked = !!tone.volFine;
-  applyVolFineStep();
-  syncFreq(tone.freq);
-  syncVolume(tone.volume);
-  syncPan(tone.pan * 100);
-  muteToggle.checked = !!tone.mute;
-}
-
-function addTone(initial) {
-  const tone = {
-    id: nextId++,
-    freq: initial && initial.freq !== undefined ? clamp(initial.freq, 20, 15000) : 440,
-    volume: initial && initial.volume !== undefined ? clamp(initial.volume, 0, 20) : 10,
-    pan: initial && initial.pan !== undefined ? clamp(initial.pan * 100, -100, 100) / 100 : 0,
-    fine: initial && initial.fine !== undefined ? !!initial.fine : false,
-    mute: initial && initial.mute !== undefined ? !!initial.mute : false,
-    volFine: initial && initial.volFine !== undefined ? !!initial.volFine : false
-  };
-  tones.push(tone);
-  createToneRow(tone);
-  renumberTones();
-  if (playing) startToneNode(tone);
-  return tone;
-}
-
-// ---------- audio wiring ----------
-
-function startToneNode(tone) {
-  const oscillator = audioCtx.createOscillator();
-  oscillator.type = 'sine';
-  oscillator.frequency.setValueAtTime(tone.freq, audioCtx.currentTime);
-
-  const gainNode = audioCtx.createGain();
-  gainNode.gain.value = computeGain(tone);
-
-  const pannerNode = audioCtx.createStereoPanner();
-  pannerNode.pan.value = tone.pan;
-
-  oscillator.connect(gainNode);
-  gainNode.connect(pannerNode);
-  pannerNode.connect(burstGainNode);
-
-  oscillator.start();
-
-  tone.oscillator = oscillator;
-  tone.gainNode = gainNode;
-  tone.pannerNode = pannerNode;
-}
-
-function stopToneNode(tone) {
-  if (tone.oscillator) {
-    try { tone.oscillator.stop(); } catch (e) {}
-    tone.oscillator.disconnect();
-  }
-  if (tone.gainNode) tone.gainNode.disconnect();
-  if (tone.pannerNode) tone.pannerNode.disconnect();
-  tone.oscillator = null;
-  tone.gainNode = null;
-  tone.pannerNode = null;
-}
-
-function getBurstOnSeconds() {
-  return clamp(burstOnInput.value, 0.05, 3600);
-}
-
-function getBurstOffSeconds() {
-  return clamp(burstOffInput.value, 0.05, 3600);
-}
-
-function applyBurstGain() {
-  if (!burstGainNode || !audioCtx) return;
-  const target = burstActive ? 1 : 0;
-  const now = audioCtx.currentTime;
-  burstGainNode.gain.cancelScheduledValues(now);
-  burstGainNode.gain.setValueAtTime(burstGainNode.gain.value, now);
-  burstGainNode.gain.linearRampToValueAtTime(target, now + 0.005); // short ramp avoids clicks
-}
-
-function scheduleNextBurstToggle() {
-  if (!playing || !burstEnabledCheckbox.checked) return;
-  const durationSeconds = burstActive ? getBurstOnSeconds() : getBurstOffSeconds();
-  burstTimeoutId = setTimeout(() => {
-    burstActive = !burstActive;
-    applyBurstGain();
-    scheduleNextBurstToggle();
-  }, durationSeconds * 1000);
-}
-
-function restartBurstCycle() {
-  clearTimeout(burstTimeoutId);
-  burstTimeoutId = null;
-  if (!playing) return;
-  if (burstEnabledCheckbox.checked) {
-    burstActive = true;
-    applyBurstGain();
-    scheduleNextBurstToggle();
-  } else if (burstGainNode && audioCtx) {
-    burstGainNode.gain.setValueAtTime(1, audioCtx.currentTime);
-  }
-}
-
-function startAll() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-  // invertGain flips polarity (gain = -1) on the combined mix, mimicking
-  // Audacity's "Invert" effect (multiplies every sample by -1).
-  invertGain = audioCtx.createGain();
-  invertGain.gain.value = invertToggle.checked ? -1 : 1;
-  invertGain.connect(audioCtx.destination);
-
-  burstGainNode = audioCtx.createGain();
-  burstGainNode.gain.value = 1;
-  burstGainNode.connect(invertGain);
-
-  tones.forEach(startToneNode);
-
-  playing = true;
-  playBtn.textContent = 'Stop All';
-  status.textContent = 'Playing';
-
-  if (burstEnabledCheckbox.checked) {
-    burstActive = true;
-    applyBurstGain();
-    scheduleNextBurstToggle();
-  }
-}
-
-function stopAll() {
-  clearTimeout(burstTimeoutId);
-  burstTimeoutId = null;
-  tones.forEach(stopToneNode);
-  if (burstGainNode) burstGainNode.disconnect();
-  burstGainNode = null;
-  if (invertGain) invertGain.disconnect();
-  invertGain = null;
-  if (audioCtx) {
-    audioCtx.close();
-    audioCtx = null;
-  }
-  playing = false;
-  playBtn.textContent = 'Play All';
-  status.textContent = 'Stopped';
-}
-
-playBtn.addEventListener('click', () => {
-  if (playing) stopAll(); else startAll();
-});
-
-invertToggle.addEventListener('change', () => {
-  appState.invert = invertToggle.checked;
-  if (invertGain && audioCtx) {
-    invertGain.gain.setValueAtTime(appState.invert ? -1 : 1, audioCtx.currentTime);
-  }
-  persist();
-});
-
-burstEnabledCheckbox.addEventListener('change', () => {
-  restartBurstCycle();
-  persist();
-});
-
-burstOnInput.addEventListener('input', () => {
-  restartBurstCycle();
-  persist();
-});
-
-burstOffInput.addEventListener('input', () => {
-  restartBurstCycle();
-  persist();
-});
-
-function applyGlobalVolFineStep() {
-  const step = appState.globalVolFine ? '0.01' : '0.05';
-  globalVolumeSlider.step = step;
-  globalVolumeNum.step = step;
-}
-
-function syncGlobalVolume(value) {
-  appState.globalVolume = clamp(value, 0, 2);
-  globalVolumeSlider.value = appState.globalVolume;
-  globalVolumeNum.value = appState.globalVolume;
-  globalVolLabel.textContent = appState.globalVolume.toFixed(2);
-  tones.forEach(t => {
-    if (t.gainNode && audioCtx) {
-      t.gainNode.gain.setValueAtTime(computeGain(t), audioCtx.currentTime);
-    }
-  });
-}
-
-globalVolumeSlider.addEventListener('input', () => { syncGlobalVolume(globalVolumeSlider.value); persist(); });
-globalVolumeNum.addEventListener('input', () => { if (globalVolumeNum.value !== '') { syncGlobalVolume(globalVolumeNum.value); persist(); } });
-
-globalVolFine.addEventListener('change', () => {
-  appState.globalVolFine = globalVolFine.checked;
-  applyGlobalVolFineStep();
-  persist();
-});
-
-addToneBtn.addEventListener('click', () => { addTone(); persist(); });
-
-// ---------- URL save/share ----------
-
-function encodeStateForUrl(obj) {
-  const json = JSON.stringify(obj);
-  return btoa(unescape(encodeURIComponent(json)));
-}
-
-function decodeStateFromUrl(str) {
-  const json = decodeURIComponent(escape(atob(str)));
-  return JSON.parse(json);
-}
-
-function buildShareUrl() {
-  const encoded = encodeStateForUrl(getStateObject());
-  return window.location.origin + window.location.pathname + window.location.search + '#settings=' + encoded;
-}
-
-function loadStateFromUrl() {
-  const hash = window.location.hash || '';
-  const match = hash.match(/#settings=(.+)$/);
-  if (!match) return null;
-  try {
-    return decodeStateFromUrl(match[1]);
-  } catch (e) {
-    return null;
-  }
-}
-
-// ---------- JSON import / export ----------
-
-function applyStateObject(obj) {
-  if (!obj || typeof obj !== 'object') throw new Error('Invalid settings object');
-
-  if (playing) stopAll();
-
-  tonesContainer.innerHTML = '';
-  tones.length = 0;
-
-  appState.invert = !!obj.invert;
-  invertToggle.checked = appState.invert;
-
-  appState.globalVolume = obj.globalVolume !== undefined ? clamp(obj.globalVolume, 0, 2) : 1;
-  appState.globalVolFine = !!obj.globalVolFine;
-  globalVolFine.checked = appState.globalVolFine;
-  applyGlobalVolFineStep();
-  globalVolumeSlider.value = appState.globalVolume;
-  globalVolumeNum.value = appState.globalVolume;
-  globalVolLabel.textContent = appState.globalVolume.toFixed(2);
-
-  const burst = obj.burst || {};
-  burstEnabledCheckbox.checked = !!burst.enabled;
-  burstOnInput.value = burst.on !== undefined ? clamp(burst.on, 0.05, 3600) : 1;
-  burstOffInput.value = burst.off !== undefined ? clamp(burst.off, 0.05, 3600) : 1;
-
-  const incomingTones = Array.isArray(obj.tones) ? obj.tones : [];
-  if (incomingTones.length === 0) {
-    addTone();
-  } else {
-    incomingTones.forEach(t => addTone(t));
-  }
-}
-
-function applyJsonFromBox() {
-  try {
-    const parsed = JSON.parse(jsonBox.value);
-    applyStateObject(parsed);
-    persist();
-    clipboardStatus.textContent = 'Settings applied.';
-  } catch (e) {
-    clipboardStatus.textContent = 'Could not apply JSON: ' + e.message;
-  }
-}
-
-exportBtn.addEventListener('click', async () => {
-  updateJsonBox();
-  try {
-    await navigator.clipboard.writeText(jsonBox.value);
-    clipboardStatus.textContent = 'Copied settings to clipboard.';
-  } catch (e) {
-    clipboardStatus.textContent = 'Clipboard write blocked - select the text in the box and copy manually.';
-  }
-});
-
-importBtn.addEventListener('click', async () => {
-  try {
-    const text = await navigator.clipboard.readText();
-    jsonBox.value = text;
-    applyJsonFromBox();
-  } catch (e) {
-    clipboardStatus.textContent = 'Clipboard read blocked - paste into the box manually and click "Apply JSON from Box".';
-  }
-});
-
-applyJsonBtn.addEventListener('click', applyJsonFromBox);
-
-generateLinkBtn.addEventListener('click', () => {
-  const url = buildShareUrl();
-  try {
-    window.history.replaceState(null, '', url);
-  } catch (e) {
-    // ignore if replaceState is unavailable (e.g. sandboxed origin)
-  }
-  shareUrlBox.value = url;
-  urlStatus.textContent = 'Link generated - address bar updated (if permitted).';
-});
-
-copyLinkBtn.addEventListener('click', async () => {
-  if (!shareUrlBox.value) {
-    shareUrlBox.value = buildShareUrl();
-  }
-  try {
-    await navigator.clipboard.writeText(shareUrlBox.value);
-    urlStatus.textContent = 'Link copied to clipboard.';
-  } catch (e) {
-    shareUrlBox.select();
-    urlStatus.textContent = 'Clipboard blocked - text selected, copy manually (Ctrl/Cmd+C).';
-  }
-});
-
-// ---------- init ----------
-
-applyGlobalVolFineStep();
-
-const urlState = loadStateFromUrl();
-const storedState = loadStateFromStorage();
-const initialState = urlState || storedState;
-
-if (initialState) {
-  try {
-    applyStateObject(initialState);
-  } catch (e) {
-    addTone();
-  }
-} else {
-  addTone();
-}
-persist();
-</script>
+  </script>
 
 </body>
+
 </html>
