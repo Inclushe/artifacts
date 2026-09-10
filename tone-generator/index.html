@@ -448,6 +448,12 @@
       while (burstNextEventTime < scheduleUntil) {
         const enteringOn = !burstPhaseActive;
         const target = enteringOn ? 1 : 0;
+        const holdValue = enteringOn ? 0 : 1; // value held flat right up until this transition
+        // Anchor the value flat before ramping - without this, linearRampToValueAtTime
+        // interpolates continuously from the previous event's time/value, which
+        // stretched into a slow fade across the entire on/off phase instead of a
+        // steady hold followed by a quick transition.
+        burstGainNode.gain.setValueAtTime(holdValue, burstNextEventTime);
         burstGainNode.gain.linearRampToValueAtTime(target, burstNextEventTime + BURST_RAMP_SEC);
         burstPhaseActive = enteringOn;
         const enteredPhaseDuration = enteringOn ? getBurstOnSeconds() : getBurstOffSeconds();
