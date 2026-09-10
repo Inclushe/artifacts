@@ -41,6 +41,10 @@
       <label>Break length (s): <input type="number" id="burstOffInput" min="0.05" step="0.05" value="1"
           style="width:70px;"></label>
     </div>
+    <div style="margin-top:8px; font-size:12px;">
+      <label><input type="checkbox" id="keepAliveEnabled" checked> Play silent keep-alive tone (0 Hz, prevents
+        background tab drift)</label>
+    </div>
   </div>
 
   <p id="status" style="text-align:center; color: gray; font-size: 14px;">Stopped</p>
@@ -69,6 +73,8 @@
   <p id="clipboardStatus" style="text-align:center; font-size:12px; color:gray;"></p>
   <p id="storageStatus" style="text-align:center; font-size:11px; color:gray;"></p>
 
+  <audio id="keepAliveAudioEl" style="display:none;"></audio>
+
   <hr>
 
   <h3>Share via URL</h3>
@@ -87,6 +93,9 @@
     let burstSchedulerIntervalId = null;
     let burstNextEventTime = 0;
     let burstPhaseActive = false; // scheduling-side state: are we currently considered "on"
+    let keepAliveOsc = null;
+    let keepAliveGain = null;
+    let mediaStreamDest = null;
     let playing = false;
     let nextId = 1;
 
@@ -119,6 +128,7 @@
     const burstEnabledCheckbox = document.getElementById('burstEnabled');
     const burstOnInput = document.getElementById('burstOnInput');
     const burstOffInput = document.getElementById('burstOffInput');
+    const keepAliveEnabledCheckbox = document.getElementById('keepAliveEnabled');
     const status = document.getElementById('status');
     const globalVolumeSlider = document.getElementById('globalVolume');
     const globalVolumeNum = document.getElementById('globalVolumeNum');
@@ -130,6 +140,7 @@
     const applyJsonBtn = document.getElementById('applyJsonBtn');
     const clipboardStatus = document.getElementById('clipboardStatus');
     const storageStatus = document.getElementById('storageStatus');
+    const keepAliveAudioEl = document.getElementById('keepAliveAudioEl');
     const generateLinkBtn = document.getElementById('generateLinkBtn');
     const copyLinkBtn = document.getElementById('copyLinkBtn');
     const shareUrlBox = document.getElementById('shareUrlBox');
@@ -173,7 +184,8 @@
         burst: {
           enabled: burstEnabledCheckbox.checked,
           on: getBurstOnSeconds(),
-          off: getBurstOffSeconds()
+          off: getBurstOffSeconds(),
+          keepAlive: keepAliveEnabledCheckbox.checked
         },
         tones: tones.map(t => ({
           freq: t.freq,
@@ -426,6 +438,37 @@
       tone.pannerNode = null;
     }
 
+    // Chrome (and to a lesser extent other engines) can auto-suspend an
+    // AudioContext that detects it's outputting pure silence for an extended
+    // stretch, to save power. During a burst-mode "off" phase every tone's gain
+    // is genuinely 0, so a long break could trigger this and stall/desync the
+    // whole graph in a background tab. Keeping one oscillator running
+    // continuously whenever burst mode is on gives the context something to do.
+    // Frequency is set to 0 Hz so it's guaranteed inaudible regardless of gain
+    // (a 0 Hz sine wave outputs a constant value, not a tone) - gain is still set
+    // low as a second safeguard.
+    function startKeepAliveTone() {
+      if (!audioCtx || !mediaStreamDest || keepAliveOsc) return;
+      keepAliveOsc = audioCtx.createOscillator();
+      keepAliveOsc.type = 'sine';
+      keepAliveOsc.frequency.setValueAtTime(0, audioCtx.currentTime);
+      keepAliveGain = audioCtx.createGain();
+      keepAliveGain.gain.value = 0.0001; // effectively inaudible, but not literal silence
+      keepAliveOsc.connect(keepAliveGain);
+      keepAliveGain.connect(mediaStreamDest);
+      keepAliveOsc.start();
+    }
+
+    function stopKeepAliveTone() {
+      if (keepAliveOsc) {
+        try { keepAliveOsc.stop(); } catch (e) { }
+        keepAliveOsc.disconnect();
+      }
+      if (keepAliveGain) keepAliveGain.disconnect();
+      keepAliveOsc = null;
+      keepAliveGain = null;
+    }
+
     function getBurstOnSeconds() {
       return clamp(burstOnInput.value, 0.05, 3600);
     }
@@ -486,7 +529,16 @@
       // Audacity's "Invert" effect (multiplies every sample by -1).
       invertGain = audioCtx.createGain();
       invertGain.gain.value = invertToggle.checked ? -1 : 1;
-      invertGain.connect(audioCtx.destination);
+
+      // Route the final output through a MediaStreamDestination + an actual
+      // playing <audio> element instead of audioCtx.destination directly.
+      // Browsers recognize a genuinely playing HTMLMediaElement as "this tab is
+      // playing audio" more reliably than a bare AudioContext, which can reduce
+      // background-tab throttling and helps avoid audio-graph auto-suspend.
+      mediaStreamDest = audioCtx.createMediaStreamDestination();
+      invertGain.connect(mediaStreamDest);
+      keepAliveAudioEl.srcObject = mediaStreamDest.stream;
+      keepAliveAudioEl.play().catch(() => { }); // ignore autoplay rejection; this runs from a user gesture
 
       burstGainNode = audioCtx.createGain();
       burstGainNode.gain.value = 1;
@@ -500,16 +552,24 @@
 
       initBurstSchedule();
       burstSchedulerIntervalId = setInterval(burstSchedulerTick, BURST_SCHEDULER_PERIOD_MS);
+
+      if (burstEnabledCheckbox.checked && keepAliveEnabledCheckbox.checked) {
+        startKeepAliveTone();
+      }
     }
 
     function stopAll() {
       clearInterval(burstSchedulerIntervalId);
       burstSchedulerIntervalId = null;
+      stopKeepAliveTone();
       tones.forEach(stopToneNode);
       if (burstGainNode) burstGainNode.disconnect();
       burstGainNode = null;
       if (invertGain) invertGain.disconnect();
       invertGain = null;
+      keepAliveAudioEl.pause();
+      keepAliveAudioEl.srcObject = null;
+      mediaStreamDest = null;
       if (audioCtx) {
         audioCtx.close();
         audioCtx = null;
@@ -533,6 +593,24 @@
 
     burstEnabledCheckbox.addEventListener('change', () => {
       restartBurstCycle();
+      if (playing) {
+        if (burstEnabledCheckbox.checked && keepAliveEnabledCheckbox.checked) {
+          startKeepAliveTone();
+        } else {
+          stopKeepAliveTone();
+        }
+      }
+      persist();
+    });
+
+    keepAliveEnabledCheckbox.addEventListener('change', () => {
+      if (playing && burstEnabledCheckbox.checked) {
+        if (keepAliveEnabledCheckbox.checked) {
+          startKeepAliveTone();
+        } else {
+          stopKeepAliveTone();
+        }
+      }
       persist();
     });
 
@@ -628,6 +706,7 @@
       burstEnabledCheckbox.checked = !!burst.enabled;
       burstOnInput.value = burst.on !== undefined ? clamp(burst.on, 0.05, 3600) : 1;
       burstOffInput.value = burst.off !== undefined ? clamp(burst.off, 0.05, 3600) : 1;
+      keepAliveEnabledCheckbox.checked = burst.keepAlive !== undefined ? !!burst.keepAlive : true;
 
       const incomingTones = Array.isArray(obj.tones) ? obj.tones : [];
       if (incomingTones.length === 0) {
